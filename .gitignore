@@ -49,3 +49,29 @@ htmlcov/
 *.log
 p.out
 pgdata/
+
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+.deploy/
+
+# Models (GGUF, ONNX, weights) - JAMAIS DANS GIT
+models/
+*.gguf
+*.onnx
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Simulation and database files
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Node / Web / Next.js
+node_modules/
+.next/
+out/

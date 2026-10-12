@@ -1,0 +1,119 @@
+name: CD Backend EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_models_download:
+        description: "Forcer le re-téléchargement complet des modèles"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Déploiement Backend EC2
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configuration de la clé SSH de déploiement
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sauvegarde préventive de la base SQLite sur le serveur
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "if [ -f ~/ouroboros/backup.sh ]; then bash ~/ouroboros/backup.sh; fi"
+
+      - name: Préparation copie de secours du code existant (app.previous)
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "if [ -d ~/ouroboros/app ]; then rm -rf ~/ouroboros/app.previous && cp -r ~/ouroboros/app ~/ouroboros/app.previous; fi"
+
+      - name: Synchronisation du code applicatif (rsync)
+        run: |
+          rsync -avz -e "ssh -i ~/.ssh/deploy_key" \
+            --exclude='data/' \
+            --exclude='.env' \
+            --exclude='venv/' \
+            --exclude='.venv/' \
+            --exclude='models/' \
+            --exclude='logs/' \
+            --exclude='backups/' \
+            --exclude='llama.cpp/' \
+            --exclude='.git/' \
+            --exclude='web/' \
+            --exclude='__pycache__/' \
+            --exclude='*.gguf' \
+            --exclude='*.onnx' \
+            --exclude='*.part' \
+            --delete \
+            ./engine ./api ./requirements.txt \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/ouroboros/app/
+
+      - name: Déploiement des scripts et manifestes infra
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "mkdir -p ~/ouroboros/infra ~/ouroboros/logs ~/ouroboros/models"
+          
+          scp -i ~/.ssh/deploy_key ./infra/models.json ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/ouroboros/infra/models.json
+          scp -i ~/.ssh/deploy_key ./infra/sync-models.sh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/ouroboros/sync-models.sh
+          
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "chmod +x ~/ouroboros/sync-models.sh"
+
+      - name: Étape 1 (Bloquante) - Déploiement du code et redémarrage services
+        run: |
+          echo "Exécution de ~/ouroboros/deploy.sh..."
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "bash ~/ouroboros/deploy.sh"
+
+      - name: Test de santé de l'API (/api/health) avec rollback automatique
+        run: |
+          echo "Vérification de l'endpoint ${{ secrets.API_URL }}/api/health..."
+          HEALTHY=0
+          for i in {1..12}; do
+            STATUS=$(curl -k -s -o /dev/null -w "%{http_code}" "${{ secrets.API_URL }}/api/health" || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "API opérationnelle (HTTP 200) !"
+              HEALTHY=1
+              break
+            fi
+            echo "Tentative $i/12 échouée (code HTTP $STATUS), attente 5s..."
+            sleep 5
+          done
+
+          if [ "$HEALTHY" -ne 1 ]; then
+            echo "ERREUR : L'API ne répond pas correctement. Déclenchement du ROLLBACK..."
+            ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+              "if [ -d ~/ouroboros/app.previous ]; then rm -rf ~/ouroboros/app && mv ~/ouroboros/app.previous ~/ouroboros/app && bash ~/ouroboros/deploy.sh; fi"
+            exit 1
+          fi
+
+      - name: Étape 2 (Non-bloquante) - Lancement de la synchronisation des modèles IA
+        run: |
+          echo "Démarrage en arrière-plan de sync-models.sh..."
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "nohup bash ~/ouroboros/sync-models.sh >/dev/null 2>&1 &"
+
+      - name: Suivi et statut des modèles
+        run: |
+          sleep 5
+          echo "### Statut du déploiement Ouroboros" >> $GITHUB_STEP_SUMMARY
+          echo "- **Code Backend** : Déployé et opérationnel sur ${{ secrets.API_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Santé API** : \`/api/health\` validé (HTTP 200)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Synchronisation Modèles** : Processus d'arrière-plan démarré (consulter \`~/ouroboros/logs/models.log\` sur le serveur pour le détail)." >> $GITHUB_STEP_SUMMARY

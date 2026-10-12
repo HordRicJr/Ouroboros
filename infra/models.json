@@ -1,0 +1,24 @@
+{
+  "models": [
+    {
+      "id": "llm-main",
+      "role": "llm",
+      "active": true,
+      "filename": "Qwen3-4B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
+      "sha256": "",
+      "size_gb": 2.8,
+      "min_ram_gb": 6
+    },
+    {
+      "id": "embeddings",
+      "role": "embeddings",
+      "active": false,
+      "filename": "multilingual-e5-small.onnx",
+      "url": "",
+      "sha256": "",
+      "size_gb": 0.5,
+      "min_ram_gb": 1
+    }
+  ]
+}
