@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .engine import Universe
-    from .people import Person
-    from .notable import NotableProfile
     from .llm import LLMClient
+    from .notable import NotableProfile
+    from .people import Person
 
 
 FORBIDDEN_SIMULATION_TERMS = [
@@ -54,12 +54,12 @@ class ImmersionFilter:
         return False
 
 
-def build_immersion_prompt(person: "Person", profile: "NotableProfile", universe: "Universe") -> list[dict[str, str]]:
+def build_immersion_prompt(person: Person, profile: NotableProfile, universe: Universe) -> list[dict[str, str]]:
     """Construit un prompt complet en immersion totale pour Qwen2.5-7B."""
     date = universe.date
     y, x = person.cell
     biome = universe.world.biome_name(y, x)
-    temp = round(float(universe.world.mean_temp[y, x]), 1)
+    round(float(universe.world.mean_temp[y, x]), 1)
     
     # Liens familiaux
     kin_text = []
@@ -102,12 +102,12 @@ DIRECTIVES D'IMMERSION TOTALE :
 
 class NotableAgent:
     """Gestionnaire d'interactions pour un notable doté d'IA."""
-    def __init__(self, person_id: int, profile: "NotableProfile", llm_client: "LLMClient"):
+    def __init__(self, person_id: int, profile: NotableProfile, llm_client: LLMClient):
         self.person_id = person_id
         self.profile = profile
         self.llm = llm_client
 
-    def ponder(self, question_or_event: str, universe: "Universe") -> str:
+    def ponder(self, question_or_event: str, universe: Universe) -> str:
         """Génère une réflexion ou réponse incarnée de l'habitant."""
         person = universe.people.persons.get(self.person_id)
         if not person:

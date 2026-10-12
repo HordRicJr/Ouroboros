@@ -86,7 +86,7 @@ class WorldMap:
         }
 
     @classmethod
-    def from_arrays(cls, a: dict[str, np.ndarray]) -> "WorldMap":
+    def from_arrays(cls, a: dict[str, np.ndarray]) -> WorldMap:
         h, w = a["elevation"].shape
         return cls(h, w, a["elevation"], float(a["sea_level"]), a["latitude"], a["hemisphere"],
                    a["moisture"], a["mean_temp"], a["river"].astype(bool), a["biome"].astype(np.int8))

@@ -1,11 +1,11 @@
 """M08 - Espèces : registre, archétypes de départ, noms."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from .genetics import NT, IDX
+from .genetics import IDX, NT
 
 PLANT, HERBIVORE, PREDATOR, HUMAN = "plant", "herbivore", "predator", "human"
 KINDS = [PLANT, HERBIVORE, PREDATOR, HUMAN]
@@ -13,10 +13,10 @@ KINDS = [PLANT, HERBIVORE, PREDATOR, HUMAN]
 # paramètres démographiques par type (biomasse relative, besoin quotidien en fraction de biomasse,
 # natalité annuelle par adulte, durée de vie en années, âge de maturité en années)
 KIND_PARAMS = {
-    PLANT:     dict(bio=1.0,   need=0.0,   birth=3.0,  life=20.0, mat=1.0,  half=3000.0),
-    HERBIVORE: dict(bio=50.0,  need=0.04,  birth=1.2,  life=12.0, mat=1.5,  half=15.0),
-    PREDATOR:  dict(bio=120.0, need=0.015, birth=0.8,  life=15.0, mat=2.0,  half=5.0),
-    HUMAN:     dict(bio=70.0,  need=0.025, birth=0.3,  life=60.0, mat=15.0, half=30.0),
+    PLANT:     {"bio": 1.0,   "need": 0.0,   "birth": 3.0,  "life": 20.0, "mat": 1.0,  "half": 3000.0},
+    HERBIVORE: {"bio": 50.0,  "need": 0.04,  "birth": 1.2,  "life": 12.0, "mat": 1.5,  "half": 15.0},
+    PREDATOR:  {"bio": 120.0, "need": 0.015, "birth": 0.8,  "life": 15.0, "mat": 2.0,  "half": 5.0},
+    HUMAN:     {"bio": 70.0,  "need": 0.025, "birth": 0.3,  "life": 60.0, "mat": 15.0, "half": 30.0},
 }
 # régime alimentaire : type consommé -> poids (somme = 1)
 DIET = {
@@ -40,7 +40,7 @@ class Species:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Species":
+    def from_dict(cls, d: dict) -> Species:
         return cls(**d)
 
 

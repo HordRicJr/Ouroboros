@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import io
 import json
-from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -13,6 +12,7 @@ from .clock import Calendar, Date
 from .constants import UniverseConstants
 from .ecology import Ecosystem
 from .events import Event
+from .llm import LLMClient
 from .notable import NotableProfile
 from .people import People
 from .rng import Rng
@@ -87,7 +87,7 @@ class Universe:
     def _update_notables_memory(self, events: list[Event], year: int):
         for ev in events:
             if ev.type == "birth":
-                p_id = ev.payload.get("person_id")
+                ev.payload.get("person_id")
                 m_id = ev.payload.get("mother_id")
                 f_id = ev.payload.get("father_id")
                 name = ev.payload.get("name")
@@ -134,7 +134,7 @@ class Universe:
         return buf.getvalue()
 
     @classmethod
-    def from_snapshot(cls, data: bytes) -> "Universe":
+    def from_snapshot(cls, data: bytes) -> Universe:
         z = np.load(io.BytesIO(data))
         meta = json.loads(bytes(z["_meta"]).decode())
         world = WorldMap.from_arrays({k: z[k] for k in z.files if k not in ("_meta", "eco_N", "eco_T", "eco_feff")})
@@ -147,10 +147,10 @@ class Universe:
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
                    meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, notables, ai_budget)
 
-    def ask_notable(self, person_id: int, question: str, llm_client: "LLMClient | None" = None) -> str:
+    def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
-        from .llm import MockLLMClient
         from .immersion import NotableAgent
+        from .llm import MockLLMClient
 
         if not self.ai_budget.can_call(self.tick):
             return "L'esprit de cet habitant est plongé dans un profond sommeil ou ses devoirs quotidiens l'accaparent."

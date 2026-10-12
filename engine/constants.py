@@ -1,7 +1,7 @@
 """Constantes d'un univers (héritables avec variations par les univers enfants)."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, fields
+from dataclasses import asdict, dataclass, fields
 
 from .rng import Rng
 
@@ -22,11 +22,11 @@ class UniverseConstants:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "UniverseConstants":
+    def from_dict(cls, d: dict) -> UniverseConstants:
         names = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in d.items() if k in names})
 
-    def mutate(self, rng: Rng, amplitude: float = 0.05) -> "UniverseConstants":
+    def mutate(self, rng: Rng, amplitude: float = 0.05) -> UniverseConstants:
         """Constantes d'un univers enfant : héritage + petites variations (±amplitude)."""
         g = rng.gen("constants-mutation")
         d = self.to_dict()

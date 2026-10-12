@@ -1,8 +1,9 @@
 """Point d'entrée du moteur de simulation pour le démarrage serveur : python -m engine.main"""
-import time
 import sys
+import time
+
 from engine.engine import Universe
-from engine.persistence import MemoryStore
+
 
 def main():
     print("[ouroboros-engine] Initialisation et démarrage du moteur de simulation...", flush=True)
@@ -21,7 +22,7 @@ def main():
         except KeyboardInterrupt:
             print("[ouroboros-engine] Arrêt du moteur demandé.", flush=True)
             break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"[ouroboros-engine] Erreur tick : {e}", file=sys.stderr, flush=True)
             time.sleep(5)
 

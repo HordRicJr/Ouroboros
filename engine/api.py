@@ -12,6 +12,7 @@ Endpoints disponibles :
 from __future__ import annotations
 
 from typing import Any
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -19,7 +20,6 @@ from .constants import UniverseConstants
 from .engine import Universe
 from .llm import HuggingFaceClient, MockLLMClient
 from .persistence import MemoryStore, Store
-
 
 app = FastAPI(
     title="Simulateur d'Univers Récursif",

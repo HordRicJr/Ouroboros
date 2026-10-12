@@ -72,4 +72,4 @@ class Calendar:
 
 
 def real_seconds_to_ticks(elapsed_seconds: float, speed: float = 1.0) -> int:
-    return int(math.floor(elapsed_seconds * speed / SECONDS_PER_DAY))
+    return math.floor(elapsed_seconds * speed / SECONDS_PER_DAY)

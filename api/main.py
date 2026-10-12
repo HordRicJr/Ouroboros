@@ -1,6 +1,7 @@
 """API FastAPI d'Ouroboros démarrée avec uvicorn api.main:app"""
 import os
 from typing import Any
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field

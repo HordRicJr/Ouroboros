@@ -5,12 +5,20 @@ Les règles de mariage et de famille dépendent de la culture (CultureRules).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
 from .events import Event
-from .genetics import I_FERT, I_LONG, I_IMM, I_RES, NT, make_child, make_genome, phenotype
+from .genetics import (
+    I_FERT,
+    I_IMM,
+    I_LONG,
+    I_RES,
+    make_child,
+    make_genome,
+    phenotype,
+)
 from .rng import Rng
 
 _FIRST_M = ["Aro", "Bel", "Cor", "Dan", "Eri", "Fel", "Gal", "Hok", "Iro", "Jan", "Kor", "Lem", "Mar", "Nor", "Oto", "Pel", "Rin", "Sar", "Tor", "Ulf"]
@@ -62,7 +70,7 @@ class Person:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Person":
+    def from_dict(cls, d: dict) -> Person:
         d = dict(d)
         d["cell"] = tuple(d["cell"])
         return cls(**d)
@@ -92,7 +100,7 @@ class People:
         return p
 
     @classmethod
-    def genesis(cls, eco, rng: Rng, tick: int = 0, couples_per_camp: int = 4) -> "People":
+    def genesis(cls, eco, rng: Rng, tick: int = 0, couples_per_camp: int = 4) -> People:
         from .species import HUMAN
         people = cls()
         hs = [s for s in eco.species if s.kind == HUMAN]
@@ -112,7 +120,7 @@ class People:
         camps: dict[tuple, list[Person]] = {}
         for p in people.persons.values():
             camps.setdefault(p.cell, []).append(p)
-        for cell, members in camps.items():
+        for members in camps.values():
             if members:
                 eldest = max(members, key=lambda p: people.age_years(p, tick))
                 eldest.notable = True
@@ -229,7 +237,7 @@ class People:
             by_cell: dict[tuple, list[Person]] = {}
             for p in single:
                 by_cell.setdefault(p.cell, []).append(p)
-            for cell, group in by_cell.items():
+            for group in by_cell.values():
                 males = [p for p in group if p.sex == "M"]
                 females = [p for p in group if p.sex == "F"]
                 for m in males:
@@ -256,7 +264,7 @@ class People:
                 "cultures": {k: asdict(v) for k, v in self.cultures.items()}}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "People":
+    def from_dict(cls, d: dict) -> People:
         p = cls(d["max_followed"])
         p.next_id = d["next_id"]
         p.persons = {x["id"]: Person.from_dict(x) for x in d["persons"]}

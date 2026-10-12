@@ -12,11 +12,37 @@ import numpy as np
 from .climate import Climate, Weather
 from .constants import UniverseConstants
 from .events import Event
-from .genetics import (NT, I_SIZE, I_RES, I_FERT, I_INT, I_LONG, I_SPEED, I_META, I_COLD, I_HEAT,
-                       I_DROUGHT, I_AGGR, I_SOC, I_CAMO, I_SENS, I_DIG, I_IMM, distance)
+from .genetics import (
+    I_AGGR,
+    I_CAMO,
+    I_COLD,
+    I_DIG,
+    I_DROUGHT,
+    I_FERT,
+    I_HEAT,
+    I_IMM,
+    I_INT,
+    I_LONG,
+    I_META,
+    I_RES,
+    I_SENS,
+    I_SIZE,
+    I_SOC,
+    I_SPEED,
+    NT,
+)
 from .rng import Rng
-from .species import (ARCHETYPES, DIET, HERBIVORE, HUMAN, KIND_PARAMS, PLANT, PREDATOR, Species,
-                      new_species_name)
+from .species import (
+    ARCHETYPES,
+    DIET,
+    HERBIVORE,
+    HUMAN,
+    KIND_PARAMS,
+    PLANT,
+    PREDATOR,
+    Species,
+    new_species_name,
+)
 from .worldmap import Biome, WorldMap
 
 K0_PLANT = 20000.0
@@ -90,7 +116,7 @@ class Ecosystem:
 
     # ------------------------------------------------------------------ genèse
     @classmethod
-    def genesis(cls, world: WorldMap, consts: UniverseConstants, rng: Rng, tick: int = 0) -> "Ecosystem":
+    def genesis(cls, world: WorldMap, consts: UniverseConstants, rng: Rng, tick: int = 0) -> Ecosystem:
         g = rng.gen("genesis")
         H, W = world.elevation.shape
         land = world.is_land
@@ -116,7 +142,7 @@ class Ecosystem:
             N[s] = tot[None] * STAGES[:, None, None]
         eco = cls(species, N, T)
         # humains : 3 campements dans des cases favorables, de préférence près d'une rivière
-        h = [i for i, sp in enumerate(species) if sp.kind == HUMAN][0]
+        h = next(i for i, sp in enumerate(species) if sp.kind == HUMAN)
         riv = (_nb_sum(world.river.astype(float)) > 0) | world.river
         ok = land & np.isin(world.biome, [Biome.GRASSLAND, Biome.SAVANNA, Biome.FOREST]) & (world.mean_temp > 5)
         cand = np.argwhere(ok & riv)
@@ -266,7 +292,7 @@ class Ecosystem:
     # ------------------------------------------------------- sélection naturelle
     def _selection(self, world: WorldMap, climate: Climate, consts: UniverseConstants, rng: Rng,
                    tick: int) -> list[Event]:
-        S = len(self.species)
+        len(self.species)
         T, N = self.T, self.N
         Ntot = N.sum(1)
         g = rng.gen("selection", tick)

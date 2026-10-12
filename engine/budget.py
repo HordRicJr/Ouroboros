@@ -8,7 +8,6 @@ Permet de respecter scrupuleusement l'enveloppe budgétaire (ex: 100$) :
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import time
 
 
 @dataclass
@@ -35,10 +34,7 @@ class AIBudgetManager:
         current_tick_count = self.tick_calls.get(tick, 0)
         # Priorité plus haute autorise un dépassement modéré par tick
         effective_limit = self.max_calls_per_tick * priority
-        if current_tick_count >= effective_limit:
-            return False
-        
-        return True
+        return not current_tick_count >= effective_limit
 
     def record_call(self, tick: int, tokens_used: int = 150):
         self.total_calls += 1
@@ -56,7 +52,7 @@ class AIBudgetManager:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "AIBudgetManager":
+    def from_dict(cls, d: dict) -> AIBudgetManager:
         bm = cls(
             max_total_calls=d.get("max_total_calls", 10_000),
             max_calls_per_tick=d.get("max_calls_per_tick", 5),

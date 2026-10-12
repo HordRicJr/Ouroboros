@@ -23,7 +23,7 @@ class MemoryItem:
         return {"tick": self.tick, "year": self.year, "text": self.text, "impact": self.impact}
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MemoryItem":
+    def from_dict(cls, d: dict[str, Any]) -> MemoryItem:
         return cls(**d)
 
 
@@ -74,7 +74,7 @@ class NotableProfile:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "NotableProfile":
+    def from_dict(cls, d: dict[str, Any]) -> NotableProfile:
         p = cls(
             person_id=d["person_id"],
             title=d.get("title", "Habitant"),
