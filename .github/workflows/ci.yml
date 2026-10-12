@@ -53,5 +53,7 @@ jobs:
           ruff check engine api
 
       - name: Exécution des tests Pytest
+        env:
+          PYTHONPATH: .:engine:backend/src
         run: |
-          pytest -q
+          pytest tests -q
