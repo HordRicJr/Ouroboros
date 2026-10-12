@@ -11,13 +11,16 @@ from .chronicles import ChronicleKeeper
 from .climate import Climate, Weather
 from .clock import Calendar, Date
 from .constants import UniverseConstants
+from .disasters import DisasterManager
 from .ecology import Ecosystem
 from .events import Event
 from .language import LanguageRegistry
 from .llm import LLMClient
 from .notable import NotableProfile
 from .people import People
+from .religion import ReligionRegistry
 from .rng import Rng
+from .settlement import SettlementManager
 from .society import Society
 from .species import Species
 from .technology import TechnologyRegistry
@@ -38,6 +41,9 @@ class Universe:
                  technology: TechnologyRegistry | None = None,
                  warfare: WarfareManager | None = None,
                  chronicles: ChronicleKeeper | None = None,
+                 disasters: DisasterManager | None = None,
+                 religion: ReligionRegistry | None = None,
+                 settlements: SettlementManager | None = None,
                  notables: dict[int, NotableProfile] | None = None,
                  ai_budget: AIBudgetManager | None = None):
         self.id = universe_id
@@ -57,6 +63,9 @@ class Universe:
         self.technology = technology or TechnologyRegistry.genesis(self.society)
         self.warfare = warfare or WarfareManager()
         self.chronicles = chronicles or ChronicleKeeper()
+        self.disasters = disasters or DisasterManager()
+        self.religion = religion or ReligionRegistry.genesis(self.rng)
+        self.settlements = settlements or SettlementManager.genesis(self.society)
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
@@ -97,6 +106,8 @@ class Universe:
             if eco_tick:
                 out += self.eco.step(self.tick, self.last_weather, self.world, self.consts, self.rng,
                                      self.climate, ECO_DAYS)
+            disaster_evs = self.disasters.step(self.tick, d.year, self.world, self.climate, self.eco, self.society, self.people, self.rng)
+            out += disaster_evs
             if d.day_of_year == 0:
                 out += self.eco.yearly(self.tick, self.world, self.consts, self.rng, self.climate)
                 tech_evs = self.technology.step(self.tick, d.year, self.society, self.world, self.rng)
@@ -106,11 +117,15 @@ class Universe:
                     out.append(Event(self.tick, le["type"], le))
                 war_evs = self.warfare.step(self.tick, d.year, self.society, self.people, self.technology, self.world, self.rng)
                 out += war_evs
+                rel_evs = self.religion.step(self.tick, d.year, self.society, self.people, self.rng)
+                out += rel_evs
+                set_evs = self.settlements.step(self.tick, d.year, self.society, self.people, self.technology, self.rng)
+                out += set_evs
             step_events = self.people.step(self.tick, self.eco, self.rng, self.consts.mutation_rate)
             out += step_events
             soc_events = self.society.step(self.tick, d.year, self.people, self.eco, self.rng, self.world, is_new_year=(d.day_of_year == 0))
             out += soc_events
-            all_step_evs = step_events + soc_events + (tech_evs + war_evs if d.day_of_year == 0 else [])
+            all_step_evs = step_events + soc_events + disaster_evs + (tech_evs + war_evs + rel_evs + set_evs if d.day_of_year == 0 else [])
             if d.day_of_year == 0:
                 self.chronicles.record_from_events(all_step_evs, d.year, self.tick)
             self._update_notables_memory(all_step_evs, d.year)
@@ -227,6 +242,28 @@ class Universe:
                         for mid in c.member_ids:
                             if mid in self.notables:
                                 self.notables[mid].add_memory(self.tick, year, f"Traité de paix signé avec le {other}", impact=0.85)
+            elif ev.type == "disaster_started":
+                dis_name = ev.payload.get("name")
+                desc = ev.payload.get("description", "")
+                for prof in self.notables.values():
+                    prof.add_memory(self.tick, year, f"Un cataclysme a frappé notre monde : {dis_name}. {desc}", impact=0.9)
+            elif ev.type == "sacred_site_erected":
+                site_name = ev.payload.get("site_name")
+                clan_id = ev.payload.get("clan_id")
+                c = self.society.clans.get(clan_id)
+                if c:
+                    for mid in c.member_ids:
+                        if mid in self.notables:
+                            self.notables[mid].add_memory(self.tick, year, f"Érection d'un lieu sacré pour nos dieux : {site_name}", impact=0.8)
+            elif ev.type == "settlement_upgraded":
+                sname = ev.payload.get("name")
+                tname = ev.payload.get("tier_name")
+                clan_id = ev.payload.get("clan_id")
+                c = self.society.clans.get(clan_id)
+                if c:
+                    for mid in c.member_ids:
+                        if mid in self.notables:
+                            self.notables[mid].add_memory(self.tick, year, f"Notre campement {sname} s'élève au rang de {tname} !", impact=0.85)
 
     def drain_events(self) -> list[Event]:
         ev, self.pending_events = self.pending_events, []
@@ -245,6 +282,9 @@ class Universe:
                 "technology": self.technology.to_dict(),
                 "warfare": self.warfare.to_dict(),
                 "chronicles": self.chronicles.to_dict(),
+                "disasters": self.disasters.to_dict(),
+                "religion": self.religion.to_dict(),
+                "settlements": self.settlements.to_dict(),
                 "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
                 "ai_budget": self.ai_budget.to_dict()}
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
@@ -265,11 +305,15 @@ class Universe:
         technology = TechnologyRegistry.from_dict(meta["technology"]) if "technology" in meta else None
         warfare = WarfareManager.from_dict(meta["warfare"]) if "warfare" in meta else None
         chronicles = ChronicleKeeper.from_dict(meta["chronicles"]) if "chronicles" in meta else None
+        disasters = DisasterManager.from_dict(meta["disasters"]) if "disasters" in meta else None
+        religion = ReligionRegistry.from_dict(meta["religion"]) if "religion" in meta else None
+        settlements = SettlementManager.from_dict(meta["settlements"]) if "settlements" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
                    meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society,
-                   languages, technology, warfare, chronicles, notables, ai_budget)
+                   languages, technology, warfare, chronicles, disasters, religion, settlements,
+                   notables, ai_budget)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
@@ -318,4 +362,7 @@ class Universe:
                 "technologies_known": sum(len(s.unlocked_techs) for s in self.technology.clan_states.values()),
                 "active_wars_count": len(self.warfare.active_wars()),
                 "chronicles_count": len(self.chronicles.entries),
+                "active_disasters_count": len(self.disasters.active_disasters()),
+                "sacred_sites_count": len(self.religion.sacred_sites),
+                "settlements_count": len(self.settlements.settlements),
                 "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}

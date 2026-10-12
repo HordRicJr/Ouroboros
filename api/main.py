@@ -364,6 +364,33 @@ def get_lineage(universe_id: str) -> dict[str, Any]:
     return multiverse.get_lineage(universe_id)
 
 
+@app.get("/universes/{universe_id}/disasters")
+def get_disasters(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    active = [d.to_dict() for d in u.disasters.active_disasters()]
+    all_d = [d.to_dict() for d in u.disasters.disasters.values()]
+    return {
+        "active_disasters": active,
+        "climate_cooling_offset": u.disasters.climate_temp_offset,
+        "all_disasters": all_d,
+    }
+
+
+@app.get("/universes/{universe_id}/pantheon")
+def get_pantheon(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "deities": [d.to_dict() for d in u.religion.deities.values()],
+        "sacred_sites": [s.to_dict() for s in u.religion.sacred_sites.values()],
+    }
+
+
+@app.get("/universes/{universe_id}/settlements")
+def get_settlements(universe_id: str) -> list[dict[str, Any]]:
+    u = _get_universe(universe_id)
+    return [s.to_dict() for s in u.settlements.settlements.values()]
+
+
 def _get_universe(universe_id: str) -> Universe:
     if universe_id in universes:
         return universes[universe_id]
