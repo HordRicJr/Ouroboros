@@ -16,6 +16,7 @@ import {
   MapPin,
   MessageSquareText,
   Play,
+  Pause,
   RefreshCw,
   Route,
   ScrollText,
@@ -95,7 +96,16 @@ export default function Home() {
   const [asking, setAsking] = useState(false);
   const [stepping, setStepping] = useState<number | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [speed, setSpeed] = useState<number>(1);
   const feedRef = useRef<HTMLDivElement>(null);
+
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
+  const loopActiveRef = useRef(false);
+  const hasUserToggled = useRef(false);
 
   const refresh = useCallback(async () => {
     const [u, w, n, s, t, c, p] = await Promise.all([
@@ -108,7 +118,12 @@ export default function Home() {
       getJson<{ deities: Deity[] }>("/universes/main/pantheon"),
     ]);
     setOnline(u !== null);
-    if (u) setUniverse(u);
+    if (u) {
+      setUniverse(u);
+      if (u.is_running !== undefined && !hasUserToggled.current) {
+        setIsPlaying(Boolean(u.is_running));
+      }
+    }
     if (w) setWorld(w);
     if (n) {
       setNotables(n);
@@ -122,13 +137,55 @@ export default function Home() {
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 12000);
+    const id = setInterval(refresh, 10000);
     return () => clearInterval(id);
   }, [refresh]);
 
+  // Boucle d'exécution continue quand la simulation est démarrée
   useEffect(() => {
-    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
-  }, [chats, asking, selected]);
+    if (!isPlaying) return;
+    let mounted = true;
+
+    // Intervalle adapté à la vitesse choisie : 1x = 1000ms (1s = 1 jour), 5x = 500ms, 30x = 250ms
+    const intervalMs = speed === 1 ? 1000 : speed === 5 ? 500 : 250;
+    const timer = setInterval(async () => {
+      if (!mounted || !isPlayingRef.current || loopActiveRef.current) return;
+      loopActiveRef.current = true;
+      try {
+        await fetch(`${API}/universes/main/step`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ days: speedRef.current }),
+        });
+        await refresh();
+      } catch (err) {
+        console.error("Erreur de simulation continue:", err);
+      } finally {
+        loopActiveRef.current = false;
+      }
+    }, intervalMs);
+
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [isPlaying, speed, refresh]);
+
+  const togglePlay = async () => {
+    hasUserToggled.current = true;
+    const nextState = !isPlaying;
+    setIsPlaying(nextState);
+    try {
+      if (nextState) {
+        await fetch(`${API}/universes/main/play?speed=${speedRef.current}`, { method: "POST" });
+      } else {
+        await fetch(`${API}/universes/main/pause`, { method: "POST" });
+      }
+    } catch (e) {
+      console.warn("Appel API play/pause fallback vers boucle locale:", e);
+    }
+    await refresh();
+  };
 
   const step = async (days: number) => {
     setStepping(days);
@@ -139,6 +196,8 @@ export default function Home() {
         body: JSON.stringify({ days }),
       });
       await refresh();
+    } catch (e) {
+      console.error("Erreur de pas:", e);
     } finally {
       setStepping(null);
     }
@@ -146,14 +205,17 @@ export default function Home() {
 
   const reset = async () => {
     if (!confirm("Voulez-vous redémarrer la simulation à l'instant originel (Jour 0) ?")) return;
+    hasUserToggled.current = true;
+    setIsPlaying(false);
     setResetting(true);
     try {
-      await fetch(`${API}/universes/main/reset`, {
-        method: "POST",
-      });
+      await fetch(`${API}/universes/main/pause`, { method: "POST" });
+      await fetch(`${API}/universes/main/reset`, { method: "POST" });
       setSelected(null);
       setChats({});
       await refresh();
+    } catch (e) {
+      console.error("Erreur reset univers:", e);
     } finally {
       setResetting(false);
     }
@@ -269,21 +331,81 @@ export default function Home() {
                 <span style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>({Math.round((universe.season_phase ?? 0) * 100)}%)</span>
               </span>
             )}
-            <div className="btn-group">
-              <button id="step-day" className="btn" disabled={stepping !== null} onClick={() => step(1)}>
-                {stepping === 1 ? <Loader2 size={15} className="spin" /> : <Play size={15} />}1 jour
+            {/* BOUTON DÉMARRER / PAUSE */}
+            <button
+              id="btn-play-pause"
+              className={`btn ${isPlaying ? "btn-pause" : "btn-play"}`}
+              onClick={togglePlay}
+              title={isPlaying ? "Mettre la simulation en pause" : "Démarrer la simulation (avance automatique du temps)"}
+            >
+              {isPlaying ? (
+                <>
+                  <Pause size={15} fill="currentColor" />
+                  <span>Pause</span>
+                  <span className="pulse-dot" />
+                </>
+              ) : (
+                <>
+                  <Play size={15} fill="currentColor" />
+                  <span>Démarrer</span>
+                </>
+              )}
+            </button>
+
+            {/* SÉLECTEUR DE VITESSE */}
+            <div className="speed-group" title="Vitesse d'écoulement du temps">
+              <button
+                id="speed-1x"
+                className={`speed-btn ${speed === 1 ? "active" : ""}`}
+                onClick={() => setSpeed(1)}
+                title="1 jour simulé par seconde"
+              >
+                1x
               </button>
-              <button id="step-month" className="btn" disabled={stepping !== null} onClick={() => step(30)}>
-                {stepping === 30 ? <Loader2 size={15} className="spin" /> : <ChevronsRight size={15} />}1 mois
+              <button
+                id="speed-5x"
+                className={`speed-btn ${speed === 5 ? "active" : ""}`}
+                onClick={() => setSpeed(5)}
+                title="5 jours par seconde"
+              >
+                5x
               </button>
-              <button id="step-year" className="btn btn-primary" disabled={stepping !== null} onClick={() => step(365)}>
-                {stepping === 365 ? <Loader2 size={15} className="spin" /> : <FastForward size={15} />}1 an
+              <button
+                id="speed-30x"
+                className={`speed-btn ${speed === 30 ? "active" : ""}`}
+                onClick={() => setSpeed(30)}
+                title="1 mois (30 jours) par tick rapide"
+              >
+                30x
               </button>
             </div>
+
+            {/* AVANCE MANUELLE */}
+            <div className="btn-group" title="Avancer manuellement dans le temps">
+              <button id="step-day" className="btn" disabled={stepping !== null || isPlaying} onClick={() => step(1)} title="Avancer de 1 jour">
+                {stepping === 1 ? <Loader2 size={14} className="spin" /> : <span>+1 j</span>}
+              </button>
+              <button id="step-month" className="btn" disabled={stepping !== null || isPlaying} onClick={() => step(30)} title="Avancer de 1 mois">
+                {stepping === 30 ? <Loader2 size={14} className="spin" /> : <span>+1 m</span>}
+              </button>
+              <button id="step-year" className="btn" disabled={stepping !== null || isPlaying} onClick={() => step(365)} title="Avancer de 1 an">
+                {stepping === 365 ? <Loader2 size={14} className="spin" /> : <span>+1 an</span>}
+              </button>
+            </div>
+
             <button id="refresh" className="btn chip" onClick={refresh} aria-label="Actualiser" title="Actualiser les données">
               <RefreshCw size={15} />
             </button>
-            <button id="reset-universe" className="btn chip" disabled={resetting || stepping !== null} onClick={reset} aria-label="Redémarrer" title="Redémarrer la simulation au jour 0" style={{ color: "var(--danger)" }}>
+
+            {/* BOUTON REDÉMARRER */}
+            <button
+              id="reset-universe"
+              className="btn-reset"
+              disabled={resetting || stepping !== null}
+              onClick={reset}
+              aria-label="Redémarrer"
+              title="Redémarrer la simulation au jour 0"
+            >
               {resetting ? <Loader2 size={15} className="spin" /> : <RotateCcw size={15} />}
               <span>Redémarrer</span>
             </button>
@@ -307,17 +429,22 @@ export default function Home() {
 
               {/* Barre de progression de l'année */}
               <div style={{ padding: "16px 20px", borderRadius: "var(--radius)", background: "var(--surface)", border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "0.85rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "0.85rem", flexWrap: "wrap", gap: "8px" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
                     <CalendarDays size={16} style={{ color: "#5bb8f5" }} />
                     Progression de l&apos;année {universe?.year ?? 0}
+                    {isPlaying && (
+                      <span className="live-pill">
+                        <span className="pulse-dot" /> Simulation active ({speed}x)
+                      </span>
+                    )}
                   </span>
                   <span style={{ color: "var(--text-muted)" }}>
                     Jour {universe?.day ?? 1} sur {universe?.year_length ?? 365} ({Math.round(((universe?.day ?? 1) / (universe?.year_length ?? 365)) * 100)} %) · {universe?.season ?? "Printemps"}
                   </span>
                 </div>
                 <div className="progress" style={{ height: "10px" }}>
-                  <div style={{ width: `${Math.min(100, Math.round(((universe?.day ?? 1) / (universe?.year_length ?? 365)) * 100))}%` }} />
+                  <div style={{ width: `${Math.min(100, Math.round(((universe?.day ?? 1) / (universe?.year_length ?? 365)) * 100))}%`, transition: "width 0.3s ease" }} />
                 </div>
               </div>
 

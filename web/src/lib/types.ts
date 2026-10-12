@@ -9,6 +9,8 @@ export interface UniverseInfo {
   year_length?: number;
   season?: string;
   season_phase?: number;
+  is_running?: boolean;
+  speed?: number;
   clans_count: number;
   languages_count: number;
   technologies_known: number;
