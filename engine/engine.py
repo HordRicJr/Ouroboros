@@ -413,8 +413,12 @@ class Universe:
 
     def info(self) -> dict:
         d = self.date
+        season_idx = int(d.season_phase * 4) % 4
+        season_name = SEASONS_N[season_idx].capitalize()
         return {"id": self.id, "seed": self.seed, "tick": self.tick, "date": str(d), "year": d.year,
-                "day_of_year": d.day_of_year, "parent_id": self.parent_id, "constants": self.consts.to_dict(),
+                "day_of_year": d.day_of_year, "day": d.day_of_year + 1, "year_length": d.year_length,
+                "season": season_name, "season_phase": round(d.season_phase, 3),
+                "parent_id": self.parent_id, "constants": self.consts.to_dict(),
                 "clans_count": len(self.society.clans),
                 "languages_count": len(self.languages.languages),
                 "technologies_known": sum(len(s.unlocked_techs) for s in self.technology.clan_states.values()),

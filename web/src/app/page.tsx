@@ -32,6 +32,9 @@ import {
   Infinity as InfinityIcon,
   Wallet,
   RotateCcw,
+  Calendar,
+  CalendarDays,
+  Sun,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TerritoryMap } from "@/components/TerritoryMap";
@@ -249,14 +252,23 @@ export default function Home() {
             <p className="page-sub">{TITLES[tab].sub}</p>
           </div>
           <div className="topbar-right">
-            <span className="chip" style={{ borderColor: tone }}>
+            <span className="chip" style={{ borderColor: tone }} title={`Cycle ${universe?.ouroboros_cycle ?? 1} : Phase ${phase}`}>
               <Sparkles size={15} style={{ color: tone }} />
               Cycle {universe?.ouroboros_cycle ?? 1} · {phase}
             </span>
-            <span className="chip">
-              <Clock3 size={15} />
-              An {universe?.year ?? 0} · Jour {universe?.day_of_year ?? 0}
+            <span className="chip" style={{ borderColor: "rgba(91, 184, 245, 0.4)" }} title={universe?.date || ""}>
+              <CalendarDays size={15} style={{ color: "#5bb8f5" }} />
+              <strong>An {universe?.year ?? 0}</strong>
+              <span style={{ color: "var(--text-muted)" }}>·</span>
+              <span>Jour {universe?.day ?? (universe ? universe.day_of_year + 1 : 1)} / {universe?.year_length ?? 365}</span>
             </span>
+            {universe?.season && (
+              <span className="chip" style={{ borderColor: "rgba(242, 184, 75, 0.3)" }}>
+                <Sun size={15} style={{ color: "#f2b84b" }} />
+                <span>{universe.season}</span>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>({Math.round((universe.season_phase ?? 0) * 100)}%)</span>
+              </span>
+            )}
             <div className="btn-group">
               <button id="step-day" className="btn" disabled={stepping !== null} onClick={() => step(1)}>
                 {stepping === 1 ? <Loader2 size={15} className="spin" /> : <Play size={15} />}1 jour
@@ -283,14 +295,30 @@ export default function Home() {
           {tab === "overview" && (
             <>
               <div className="stat-grid">
-                <StatCard icon={Tent} label="Clans" value={universe?.clans_count ?? 0} tone="#5bb8f5" />
+                <StatCard icon={Calendar} label="Date & Calendrier" value={`An ${universe?.year ?? 0}`} tone="#5bb8f5" />
+                <StatCard icon={Sun} label="Saison en cours" value={universe?.season ?? "Printemps"} tone="#f2b84b" />
+                <StatCard icon={Tent} label="Clans" value={universe?.clans_count ?? 0} tone="#4fd1a5" />
                 <StatCard icon={Users} label="Habitants notables" value={universe?.notables_count ?? 0} tone="#8b7cf6" />
-                <StatCard icon={Castle} label="Établissements" value={universe?.settlements_count ?? 0} tone="#4fd1a5" />
-                <StatCard icon={Route} label="Routes commerciales" value={universe?.trade_routes_count ?? 0} tone="#f2b84b" />
+                <StatCard icon={Castle} label="Établissements" value={universe?.settlements_count ?? 0} tone="#38bdf8" />
+                <StatCard icon={Route} label="Routes commerciales" value={universe?.trade_routes_count ?? 0} tone="#fbbf24" />
                 <StatCard icon={Crown} label="Royaumes" value={universe?.kingdoms_count ?? 0} tone="#ec7fb6" />
                 <StatCard icon={Landmark} label="Merveilles" value={universe?.wonders_count ?? 0} tone="#f08a5d" />
-                <StatCard icon={Gavel} label="Lois édictées" value={universe?.legal_codes_count ?? 0} tone="#b48cf6" />
-                <StatCard icon={Activity} label="Catastrophes actives" value={universe?.active_disasters_count ?? 0} tone="#ef6b73" />
+              </div>
+
+              {/* Barre de progression de l'année */}
+              <div style={{ padding: "16px 20px", borderRadius: "var(--radius)", background: "var(--surface)", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "0.85rem" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
+                    <CalendarDays size={16} style={{ color: "#5bb8f5" }} />
+                    Progression de l&apos;année {universe?.year ?? 0}
+                  </span>
+                  <span style={{ color: "var(--text-muted)" }}>
+                    Jour {universe?.day ?? 1} sur {universe?.year_length ?? 365} ({Math.round(((universe?.day ?? 1) / (universe?.year_length ?? 365)) * 100)} %) · {universe?.season ?? "Printemps"}
+                  </span>
+                </div>
+                <div className="progress" style={{ height: "10px" }}>
+                  <div style={{ width: `${Math.min(100, Math.round(((universe?.day ?? 1) / (universe?.year_length ?? 365)) * 100))}%` }} />
+                </div>
               </div>
 
               <div className="grid-2">

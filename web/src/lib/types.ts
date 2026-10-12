@@ -5,6 +5,10 @@ export interface UniverseInfo {
   date: string;
   year: number;
   day_of_year: number;
+  day?: number;
+  year_length?: number;
+  season?: string;
+  season_phase?: number;
   clans_count: number;
   languages_count: number;
   technologies_known: number;
