@@ -100,7 +100,7 @@ class People:
         return p
 
     @classmethod
-    def genesis(cls, eco, rng: Rng, tick: int = 0, couples_per_camp: int = 4) -> People:
+    def genesis(cls, eco, rng: Rng, tick: int = 0, couples_per_camp: int = 2) -> People:
         from .species import HUMAN
         people = cls()
         hs = [s for s in eco.species if s.kind == HUMAN]
@@ -116,14 +116,7 @@ class People:
                 m.birth_tick = tick - int(g.integers(16, 36)) * 365
                 f.birth_tick = tick - int(g.integers(16, 34)) * 365
                 m.spouse_ids, f.spouse_ids = [f.id], [m.id]
-        # Désignation des premiers notables (doyen/chef de chaque campement)
-        camps: dict[tuple, list[Person]] = {}
-        for p in people.persons.values():
-            camps.setdefault(p.cell, []).append(p)
-        for members in camps.values():
-            if members:
-                eldest = max(members, key=lambda p: people.age_years(p, tick))
-                eldest.notable = True
+        # Au jour 1, aucun notable immédiat : les notables émergent organiquement avec le temps
         return people
 
     # --------------------------------------------------------------- requêtes

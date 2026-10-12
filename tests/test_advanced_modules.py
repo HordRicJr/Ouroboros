@@ -3,13 +3,17 @@ from fastapi.testclient import TestClient
 
 from api.main import app
 from engine.chronicles import ChronicleKeeper
+from engine.ecology import Ecosystem
 from engine.engine import Universe
 from engine.multiverse import MultiverseRegistry
 from engine.warfare import WarfareManager
 
 
 def test_warfare_declaration_and_skirmish():
-    u = Universe("test-war-u", seed=88)
+    # Créer un écosystème avec 2 campements pour avoir 2 clans belligérants
+    u_tmp = Universe("test-war-u", seed=88)
+    eco = Ecosystem.genesis(u_tmp.world, u_tmp.consts, u_tmp.rng, u_tmp.tick, initial_camps=2)
+    u = Universe("test-war-u", seed=88, eco=eco)
     warfare: WarfareManager = u.warfare
 
     c_ids = list(u.society.clans.keys())

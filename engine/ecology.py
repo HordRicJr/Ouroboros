@@ -116,7 +116,7 @@ class Ecosystem:
 
     # ------------------------------------------------------------------ genèse
     @classmethod
-    def genesis(cls, world: WorldMap, consts: UniverseConstants, rng: Rng, tick: int = 0) -> Ecosystem:
+    def genesis(cls, world: WorldMap, consts: UniverseConstants, rng: Rng, tick: int = 0, initial_camps: int = 1) -> Ecosystem:
         g = rng.gen("genesis")
         H, W = world.elevation.shape
         land = world.is_land
@@ -141,18 +141,19 @@ class Ecosystem:
                 tot = np.zeros((H, W))
             N[s] = tot[None] * STAGES[:, None, None]
         eco = cls(species, N, T)
-        # humains : 3 campements dans des cases favorables, de préférence près d'une rivière
+        # humains : campements dans des cases favorables (1 campement pionnier par défaut)
         h = next(i for i, sp in enumerate(species) if sp.kind == HUMAN)
         riv = (_nb_sum(world.river.astype(float)) > 0) | world.river
         ok = land & np.isin(world.biome, [Biome.GRASSLAND, Biome.SAVANNA, Biome.FOREST]) & (world.mean_temp > 5)
         cand = np.argwhere(ok & riv)
-        if len(cand) < 3:
-            cand = np.argwhere(ok) if ok.sum() >= 3 else np.argwhere(land)
-        pick = g.choice(len(cand), size=min(3, len(cand)), replace=False)
+        if len(cand) < initial_camps:
+            cand = np.argwhere(ok) if ok.sum() >= initial_camps else np.argwhere(land)
+        count = min(initial_camps, len(cand))
+        pick = g.choice(len(cand), size=count, replace=False)
         for k in pick:
             y, x = (int(v) for v in cand[k])
             eco.human_cells.append((y, x))
-            N[h, :, y, x] = 30.0 * np.array([0.35, 0.55, 0.10])
+            N[h, :, y, x] = 20.0 * np.array([0.35, 0.55, 0.10])
         return eco
 
     # --------------------------------------------------------------- utilitaires

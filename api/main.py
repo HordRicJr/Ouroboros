@@ -116,6 +116,19 @@ def step_universe(universe_id: str, req: StepRequest) -> dict[str, Any]:
     }
 
 
+@app.post("/universes/{universe_id}/reset")
+def reset_universe(universe_id: str) -> dict[str, Any]:
+    u_old = _get_universe(universe_id)
+    # Réinitialisation à neuf avec la même graine (même monde et lois)
+    u_new = Universe(u_old.id, u_old.seed, consts=u_old.consts, start_year=u_old.start_year, parent_id=u_old.parent_id)
+    universes[universe_id] = u_new
+    store.save(u_new)
+    return {
+        "message": f"Univers '{universe_id}' réinitialisé au commencement.",
+        "info": u_new.info(),
+    }
+
+
 @app.get("/universes/{universe_id}/map")
 def get_universe_map(universe_id: str) -> dict[str, Any]:
     u = _get_universe(universe_id)

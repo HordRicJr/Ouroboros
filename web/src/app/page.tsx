@@ -31,6 +31,7 @@ import {
   Brain,
   Infinity as InfinityIcon,
   Wallet,
+  RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TerritoryMap } from "@/components/TerritoryMap";
@@ -90,6 +91,7 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [stepping, setStepping] = useState<number | null>(null);
+  const [resetting, setResetting] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
@@ -136,6 +138,21 @@ export default function Home() {
       await refresh();
     } finally {
       setStepping(null);
+    }
+  };
+
+  const reset = async () => {
+    if (!confirm("Voulez-vous redémarrer la simulation à l'instant originel (Jour 0) ?")) return;
+    setResetting(true);
+    try {
+      await fetch(`${API}/universes/main/reset`, {
+        method: "POST",
+      });
+      setSelected(null);
+      setChats({});
+      await refresh();
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -251,8 +268,12 @@ export default function Home() {
                 {stepping === 365 ? <Loader2 size={15} className="spin" /> : <FastForward size={15} />}1 an
               </button>
             </div>
-            <button id="refresh" className="btn chip" onClick={refresh} aria-label="Actualiser">
+            <button id="refresh" className="btn chip" onClick={refresh} aria-label="Actualiser" title="Actualiser les données">
               <RefreshCw size={15} />
+            </button>
+            <button id="reset-universe" className="btn chip" disabled={resetting || stepping !== null} onClick={reset} aria-label="Redémarrer" title="Redémarrer la simulation au jour 0" style={{ color: "var(--danger)" }}>
+              {resetting ? <Loader2 size={15} className="spin" /> : <RotateCcw size={15} />}
+              <span>Redémarrer</span>
             </button>
           </div>
         </header>
