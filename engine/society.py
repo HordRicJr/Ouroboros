@@ -65,6 +65,8 @@ class Clan:
     cosmogony: str = ""
     taboos: list[str] = field(default_factory=list)
     culture_name: str = "ancestrale"
+    language_id: int = 1
+    settlement_name: str = "Campement Sacré"
     relations: dict[int, float] = field(default_factory=dict)  # clan_id -> score (-1.0 à +1.0)
     founded_year: int = 0
 
@@ -165,6 +167,8 @@ class Society:
                 cosmogony=cosmo,
                 taboos=taboo,
                 culture_name="ancestrale",
+                language_id=1,
+                settlement_name=f"Havre-{totem.split()[0]}",
                 founded_year=0,
             )
             soc.clans[clan.id] = clan

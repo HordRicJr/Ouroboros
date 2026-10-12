@@ -12,12 +12,14 @@ from .clock import Calendar, Date
 from .constants import UniverseConstants
 from .ecology import Ecosystem
 from .events import Event
+from .language import LanguageRegistry
 from .llm import LLMClient
 from .notable import NotableProfile
 from .people import People
 from .rng import Rng
 from .society import Society
 from .species import Species
+from .technology import TechnologyRegistry
 from .worldmap import WorldMap, generate_world
 
 SEASONS_N = ["printemps", "été", "automne", "hiver"]  # hémisphère nord
@@ -30,6 +32,8 @@ class Universe:
                  world: WorldMap | None = None, tick: int = 0,
                  eco: Ecosystem | None = None, people: People | None = None,
                  society: Society | None = None,
+                 languages: LanguageRegistry | None = None,
+                 technology: TechnologyRegistry | None = None,
                  notables: dict[int, NotableProfile] | None = None,
                  ai_budget: AIBudgetManager | None = None):
         self.id = universe_id
@@ -45,6 +49,8 @@ class Universe:
         self.eco = eco or Ecosystem.genesis(self.world, self.consts, self.rng, tick)
         self.people = people or People.genesis(self.eco, self.rng, tick)
         self.society = society or Society.genesis(self.people, self.eco, self.rng, self.world, tick)
+        self.languages = languages or LanguageRegistry.genesis(self.rng)
+        self.technology = technology or TechnologyRegistry.genesis(self.society)
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
@@ -87,6 +93,11 @@ class Universe:
                                      self.climate, ECO_DAYS)
             if d.day_of_year == 0:
                 out += self.eco.yearly(self.tick, self.world, self.consts, self.rng, self.climate)
+                tech_evs = self.technology.step(self.tick, d.year, self.society, self.world, self.rng)
+                out += tech_evs
+                lang_evs = self.languages.step(self.tick, d.year, self.rng.gen("lang", self.tick))
+                for le in lang_evs:
+                    out.append(Event(self.tick, le["type"], le))
             step_events = self.people.step(self.tick, self.eco, self.rng, self.consts.mutation_rate)
             out += step_events
             soc_events = self.society.step(self.tick, d.year, self.people, self.eco, self.rng, self.world, is_new_year=(d.day_of_year == 0))
@@ -166,6 +177,23 @@ class Universe:
                         for mid in c.member_ids:
                             if mid in self.notables:
                                 self.notables[mid].add_memory(self.tick, year, f"Pacte de fraternité et d'amitié scellé avec le clan {other_name}", impact=0.7)
+            elif ev.type == "tech_discovered":
+                clan_id = ev.payload.get("clan_id")
+                tech_name = ev.payload.get("tech_name")
+                c = self.society.clans.get(clan_id)
+                if c:
+                    for mid in c.member_ids:
+                        if mid in self.notables:
+                            self.notables[mid].add_memory(self.tick, year, f"Notre peuple a découvert un nouveau savoir sacré : {tech_name}", impact=0.8)
+            elif ev.type == "tech_shared":
+                learner_id = ev.payload.get("learner_clan_id")
+                tech_name = ev.payload.get("tech_name")
+                teacher_name = ev.payload.get("teacher_clan_name")
+                c = self.society.clans.get(learner_id)
+                if c:
+                    for mid in c.member_ids:
+                        if mid in self.notables:
+                            self.notables[mid].add_memory(self.tick, year, f"Nos amis du {teacher_name} nous ont enseigné : {tech_name}", impact=0.7)
 
     def drain_events(self) -> list[Event]:
         ev, self.pending_events = self.pending_events, []
@@ -180,6 +208,8 @@ class Universe:
                 "human_cells": [list(c) for c in self.eco.human_cells],
                 "people": self.people.to_dict(),
                 "society": self.society.to_dict(),
+                "languages": self.languages.to_dict(),
+                "technology": self.technology.to_dict(),
                 "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
                 "ai_budget": self.ai_budget.to_dict()}
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
@@ -196,10 +226,13 @@ class Universe:
         eco.human_cells = [tuple(c) for c in meta["human_cells"]]
         people = People.from_dict(meta["people"])
         society = Society.from_dict(meta["society"]) if "society" in meta else None
+        languages = LanguageRegistry.from_dict(meta["languages"]) if "languages" in meta else None
+        technology = TechnologyRegistry.from_dict(meta["technology"]) if "technology" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
-                   meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society, notables, ai_budget)
+                   meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society,
+                   languages, technology, notables, ai_budget)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
@@ -232,4 +265,6 @@ class Universe:
         return {"id": self.id, "seed": self.seed, "tick": self.tick, "date": str(d), "year": d.year,
                 "day_of_year": d.day_of_year, "parent_id": self.parent_id, "constants": self.consts.to_dict(),
                 "clans_count": len(self.society.clans),
+                "languages_count": len(self.languages.languages),
+                "technologies_known": sum(len(s.unlocked_techs) for s in self.technology.clan_states.values()),
                 "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}

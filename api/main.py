@@ -220,10 +220,21 @@ def get_clan(universe_id: str, clan_id: int) -> dict[str, Any]:
             "status": "allié" if score >= 0.5 else ("rival/hostile" if score <= -0.3 else "neutre"),
         }
 
+    # Langue et technologies maîtrisées
+    lang = u.languages.languages.get(clan.language_id) if hasattr(u, "languages") else None
+    tech_state = u.technology.clan_states.get(clan.id) if hasattr(u, "technology") else None
+    from engine.technology import TECH_CATALOG
+    techs_detailed = [
+        {"id": tid, "name": TECH_CATALOG[tid].name, "description": TECH_CATALOG[tid].description}
+        for tid in (tech_state.unlocked_techs if tech_state else [])
+        if tid in TECH_CATALOG
+    ]
+
     return {
         "id": clan.id,
         "name": clan.name,
         "totem": clan.totem,
+        "settlement_name": clan.settlement_name,
         "settlement_cell": list(clan.settlement_cell),
         "territory_cells": [list(c) for c in clan.territory_cells],
         "population": clan.population_size,
@@ -231,9 +242,71 @@ def get_clan(universe_id: str, clan_id: int) -> dict[str, Any]:
         "matriarch": {"id": matriarch.id, "name": matriarch.name} if matriarch else None,
         "cosmogony": clan.cosmogony,
         "taboos": clan.taboos,
+        "language": {"id": lang.id, "name": lang.name, "family": lang.family_name} if lang else None,
+        "technologies": techs_detailed,
         "relations": relations_detailed,
         "founded_year": clan.founded_year,
         "members": members,
+    }
+
+
+@app.get("/universes/{universe_id}/languages")
+def list_languages(universe_id: str) -> list[dict[str, Any]]:
+    u = _get_universe(universe_id)
+    res = []
+    for lang in u.languages.languages.values():
+        res.append({
+            "id": lang.id,
+            "name": lang.name,
+            "family_name": lang.family_name,
+            "parent_lang_id": lang.parent_lang_id,
+            "drift_count": lang.drift_count,
+            "lexicon_sample": {k: lang.lexicon[k] for k in list(lang.lexicon.keys())[:8]},
+            "consonants": lang.consonants,
+            "vowels": lang.vowels,
+        })
+    return res
+
+
+@app.get("/universes/{universe_id}/languages/{lang_id}")
+def get_language(universe_id: str, lang_id: int) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    lang = u.languages.languages.get(lang_id)
+    if not lang:
+        raise HTTPException(status_code=404, detail="Langue introuvable.")
+    return lang.to_dict()
+
+
+@app.get("/universes/{universe_id}/technology")
+def get_technology(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    from engine.technology import TECH_CATALOG
+    catalog = [
+        {
+            "id": t.id,
+            "name": t.name,
+            "category": t.category,
+            "description": t.description,
+            "prerequisites": t.prerequisites,
+            "food_bonus": t.food_bonus,
+            "health_bonus": t.health_bonus,
+        }
+        for t in TECH_CATALOG.values()
+    ]
+    clans_tech = []
+    for clan in u.society.clans.values():
+        cstate = u.technology.clan_states.get(clan.id)
+        clans_tech.append({
+            "clan_id": clan.id,
+            "clan_name": clan.name,
+            "unlocked_techs": cstate.unlocked_techs if cstate else [],
+            "total_food_bonus": round(cstate.total_food_bonus(), 2) if cstate else 0.0,
+            "total_health_bonus": round(cstate.total_health_bonus(), 2) if cstate else 0.0,
+            "inventory": cstate.inventory if cstate else {},
+        })
+    return {
+        "catalog": catalog,
+        "clans_technology": clans_tech,
     }
 
 

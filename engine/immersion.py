@@ -86,6 +86,19 @@ def build_immersion_prompt(person: Person, profile: NotableProfile, universe: Un
         clan_info.append(f"Mythe fondateur : {clan.cosmogony}")
         if clan.taboos:
             clan_info.append("Tabous sacrés : " + " ; ".join(clan.taboos))
+        # Langue maternelle
+        if hasattr(universe, "languages") and clan.language_id in universe.languages.languages:
+            lang = universe.languages.languages[clan.language_id]
+            words = [f"{c}={lang.lexicon[c]}" for c in ["soleil", "eau", "feu", "chef"] if c in lang.lexicon]
+            if words:
+                clan_info.append(f"Langue ({lang.name}) : " + ", ".join(words))
+        # Savoirs & Technologies du clan
+        if hasattr(universe, "technology") and clan.id in universe.technology.clan_states:
+            techs = universe.technology.clan_states[clan.id].unlocked_techs
+            from .technology import TECH_CATALOG
+            tech_names = [TECH_CATALOG[tid].name for tid in techs if tid in TECH_CATALOG]
+            if tech_names:
+                clan_info.append("Savoirs et techniques maîtrisés : " + ", ".join(tech_names))
     clan_str = "\n- ".join(clan_info)
     clan_line = f"- {clan_str}\n" if clan_str else ""
 
