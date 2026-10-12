@@ -16,6 +16,7 @@ from .llm import LLMClient
 from .notable import NotableProfile
 from .people import People
 from .rng import Rng
+from .society import Society
 from .species import Species
 from .worldmap import WorldMap, generate_world
 
@@ -28,6 +29,7 @@ class Universe:
                  start_year: int = 0, parent_id: str | None = None,
                  world: WorldMap | None = None, tick: int = 0,
                  eco: Ecosystem | None = None, people: People | None = None,
+                 society: Society | None = None,
                  notables: dict[int, NotableProfile] | None = None,
                  ai_budget: AIBudgetManager | None = None):
         self.id = universe_id
@@ -42,6 +44,7 @@ class Universe:
         self.tick = tick
         self.eco = eco or Ecosystem.genesis(self.world, self.consts, self.rng, tick)
         self.people = people or People.genesis(self.eco, self.rng, tick)
+        self.society = society or Society.genesis(self.people, self.eco, self.rng, self.world, tick)
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
@@ -51,7 +54,14 @@ class Universe:
         notables: dict[int, NotableProfile] = {}
         for p in self.people.persons.values():
             if p.notable:
-                notables[p.id] = NotableProfile(p.id, title="Chef de campement" if p.sex == "M" else "Matriarche")
+                clan = self.society.get_person_clan(p.id)
+                clan_name = f" ({clan.name})" if clan else ""
+                title = f"Chef de clan{clan_name}" if p.sex == "M" else f"Matriarche{clan_name}"
+                prof = NotableProfile(p.id, title=title)
+                if clan:
+                    prof.beliefs.append(f"Totem sacré du clan : {clan.totem}")
+                    prof.beliefs.append(f"Mythe fondateur : {clan.cosmogony}")
+                notables[p.id] = prof
         return notables
 
     @property
@@ -79,7 +89,9 @@ class Universe:
                 out += self.eco.yearly(self.tick, self.world, self.consts, self.rng, self.climate)
             step_events = self.people.step(self.tick, self.eco, self.rng, self.consts.mutation_rate)
             out += step_events
-            self._update_notables_memory(step_events, d.year)
+            soc_events = self.society.step(self.tick, d.year, self.people, self.eco, self.rng, self.world, is_new_year=(d.day_of_year == 0))
+            out += soc_events
+            self._update_notables_memory(step_events + soc_events, d.year)
             self.tick += 1
         self.pending_events.extend(out)
         return out
@@ -87,7 +99,6 @@ class Universe:
     def _update_notables_memory(self, events: list[Event], year: int):
         for ev in events:
             if ev.type == "birth":
-                ev.payload.get("person_id")
                 m_id = ev.payload.get("mother_id")
                 f_id = ev.payload.get("father_id")
                 name = ev.payload.get("name")
@@ -107,13 +118,54 @@ class Universe:
                 pid = ev.payload.get("person_id")
                 name = ev.payload.get("name")
                 cause = ev.payload.get("cause")
-                # Si un notable meurt
                 if pid in self.notables:
                     self.notables[pid].add_memory(self.tick, year, f"Dernier soupir emporté par {cause}", impact=1.0)
-                # Prévenir les proches vivants
                 for not_id, profile in self.notables.items():
                     if not_id != pid and self.people.are_kin(not_id, pid, 1):
                         profile.add_memory(self.tick, year, f"Deuil tragique de {name} ({cause})", impact=0.75)
+            elif ev.type == "clan_leadership":
+                new_leader_id = ev.payload.get("new_leader_id")
+                clan_name = ev.payload.get("clan_name")
+                if new_leader_id in self.notables:
+                    self.notables[new_leader_id].add_memory(self.tick, year, f"Je suis devenu le chef de mon clan ({clan_name})", impact=0.9)
+            elif ev.type == "cultural_drift":
+                clan_id = ev.payload.get("clan_id")
+                taboo = ev.payload.get("taboo_adopted")
+                clan = self.society.clans.get(clan_id)
+                if clan:
+                    for mid in clan.member_ids:
+                        if mid in self.notables:
+                            self.notables[mid].add_memory(self.tick, year, f"Notre clan a adopté un nouvel interdit sacré : « {taboo} »", impact=0.6)
+            elif ev.type == "clan_split":
+                parent_clan_id = ev.payload.get("parent_clan_id")
+                new_clan_name = ev.payload.get("new_clan_name")
+                parent_clan = self.society.clans.get(parent_clan_id)
+                if parent_clan:
+                    for mid in parent_clan.member_ids:
+                        if mid in self.notables:
+                            self.notables[mid].add_memory(self.tick, year, f"Grande scission de notre peuple : départ des pionniers pour former {new_clan_name}", impact=0.85)
+            elif ev.type == "clan_friction":
+                c1_name = ev.payload.get("clan1_name")
+                c2_name = ev.payload.get("clan2_name")
+                c1_id = ev.payload.get("clan1_id")
+                c2_id = ev.payload.get("clan2_id")
+                for cid, other_name in [(c1_id, c2_name), (c2_id, c1_name)]:
+                    c = self.society.clans.get(cid)
+                    if c:
+                        for mid in c.member_ids:
+                            if mid in self.notables:
+                                self.notables[mid].add_memory(self.tick, year, f"Tensions et rivalités frontalières avec le clan {other_name}", impact=0.7)
+            elif ev.type == "clan_alliance":
+                c1_name = ev.payload.get("clan1_name")
+                c2_name = ev.payload.get("clan2_name")
+                c1_id = ev.payload.get("clan1_id")
+                c2_id = ev.payload.get("clan2_id")
+                for cid, other_name in [(c1_id, c2_name), (c2_id, c1_name)]:
+                    c = self.society.clans.get(cid)
+                    if c:
+                        for mid in c.member_ids:
+                            if mid in self.notables:
+                                self.notables[mid].add_memory(self.tick, year, f"Pacte de fraternité et d'amitié scellé avec le clan {other_name}", impact=0.7)
 
     def drain_events(self) -> list[Event]:
         ev, self.pending_events = self.pending_events, []
@@ -127,6 +179,7 @@ class Universe:
                 "species": [s.to_dict() for s in self.eco.species],
                 "human_cells": [list(c) for c in self.eco.human_cells],
                 "people": self.people.to_dict(),
+                "society": self.society.to_dict(),
                 "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
                 "ai_budget": self.ai_budget.to_dict()}
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
@@ -142,10 +195,11 @@ class Universe:
         eco.feff = z["eco_feff"]
         eco.human_cells = [tuple(c) for c in meta["human_cells"]]
         people = People.from_dict(meta["people"])
+        society = Society.from_dict(meta["society"]) if "society" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
-                   meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, notables, ai_budget)
+                   meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society, notables, ai_budget)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
@@ -160,7 +214,9 @@ class Universe:
             if person_id in self.people.persons:
                 p = self.people.persons[person_id]
                 p.notable = True
-                self.notables[person_id] = NotableProfile(person_id, title="Habitant remarquable")
+                clan = self.society.get_person_clan(person_id)
+                clan_name = f" ({clan.name})" if clan else ""
+                self.notables[person_id] = NotableProfile(person_id, title=f"Habitant remarquable{clan_name}")
             else:
                 return "Cet individu n'existe pas ou a disparu des mémoires."
 
@@ -175,4 +231,5 @@ class Universe:
         d = self.date
         return {"id": self.id, "seed": self.seed, "tick": self.tick, "date": str(d), "year": d.year,
                 "day_of_year": d.day_of_year, "parent_id": self.parent_id, "constants": self.consts.to_dict(),
+                "clans_count": len(self.society.clans),
                 "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}

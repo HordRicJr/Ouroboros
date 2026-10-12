@@ -79,6 +79,16 @@ def build_immersion_prompt(person: Person, profile: NotableProfile, universe: Un
     family_str = " | ".join(kin_text) if kin_text else "Vit seul(e) ou parents disparus"
     mem_str = profile.summary_context()
 
+    clan = universe.society.get_person_clan(person.id) if hasattr(universe, "society") else None
+    clan_info = []
+    if clan:
+        clan_info.append(f"Appartenance : {clan.name} (Totem : {clan.totem})")
+        clan_info.append(f"Mythe fondateur : {clan.cosmogony}")
+        if clan.taboos:
+            clan_info.append("Tabous sacrés : " + " ; ".join(clan.taboos))
+    clan_str = "\n- ".join(clan_info)
+    clan_line = f"- {clan_str}\n" if clan_str else ""
+
     system_prompt = f"""Tu es {person.name}, un être humain bien réel vivant dans ce monde.
 Tu as ton propre corps, tes émotions, tes attachements, tes peurs et tes devoirs.
 RÈGLES ABSOLUES D'INCARNATION :
@@ -86,7 +96,7 @@ RÈGLES ABSOLUES D'INCARNATION :
 - Tu te trouves dans une région de {biome}.
 - Ton titre / rôle : {profile.title}.
 - Tes liens du sang : {family_str}.
-- {mem_str}
+{clan_line}- {mem_str}
 
 DIRECTIVES D'IMMERSION TOTALE :
 1. Tu ne sais rien du monde moderne, ni de science moderne, ni de technologie. Tu ignores totalement être dans une simulation ou un jeu.

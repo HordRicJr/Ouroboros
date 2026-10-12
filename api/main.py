@@ -163,6 +163,80 @@ def get_genealogy(universe_id: str, person_id: int, up: int = 3, down: int = 3) 
     return u.people.genealogy(person_id, up=up, down=down)
 
 
+@app.get("/universes/{universe_id}/clans")
+def list_clans(universe_id: str) -> list[dict[str, Any]]:
+    u = _get_universe(universe_id)
+    res = []
+    for clan in u.society.clans.values():
+        leader = u.people.persons.get(clan.leader_id) if clan.leader_id else None
+        matriarch = u.people.persons.get(clan.matriarch_id) if clan.matriarch_id else None
+        res.append({
+            "id": clan.id,
+            "name": clan.name,
+            "totem": clan.totem,
+            "settlement_cell": list(clan.settlement_cell),
+            "population": clan.population_size,
+            "leader_id": clan.leader_id,
+            "leader_name": leader.name if leader else None,
+            "matriarch_id": clan.matriarch_id,
+            "matriarch_name": matriarch.name if matriarch else None,
+            "cosmogony": clan.cosmogony,
+            "taboos": clan.taboos,
+            "founded_year": clan.founded_year,
+        })
+    return res
+
+
+@app.get("/universes/{universe_id}/clans/{clan_id}")
+def get_clan(universe_id: str, clan_id: int) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    clan = u.society.clans.get(clan_id)
+    if not clan:
+        raise HTTPException(status_code=404, detail="Clan introuvable.")
+
+    leader = u.people.persons.get(clan.leader_id) if clan.leader_id else None
+    matriarch = u.people.persons.get(clan.matriarch_id) if clan.matriarch_id else None
+
+    # Résumé des membres vivants
+    members = []
+    for pid in clan.member_ids:
+        p = u.people.persons.get(pid)
+        if p and p.alive:
+            members.append({
+                "id": p.id,
+                "name": p.name,
+                "sex": p.sex,
+                "age": round(u.people.age_years(p, u.tick), 1),
+                "notable": p.notable,
+            })
+
+    # Relations avec noms des autres clans
+    relations_detailed = {}
+    for other_id, score in clan.relations.items():
+        other_clan = u.society.clans.get(other_id)
+        relations_detailed[str(other_id)] = {
+            "clan_name": other_clan.name if other_clan else f"Clan #{other_id}",
+            "relation_score": score,
+            "status": "allié" if score >= 0.5 else ("rival/hostile" if score <= -0.3 else "neutre"),
+        }
+
+    return {
+        "id": clan.id,
+        "name": clan.name,
+        "totem": clan.totem,
+        "settlement_cell": list(clan.settlement_cell),
+        "territory_cells": [list(c) for c in clan.territory_cells],
+        "population": clan.population_size,
+        "leader": {"id": leader.id, "name": leader.name} if leader else None,
+        "matriarch": {"id": matriarch.id, "name": matriarch.name} if matriarch else None,
+        "cosmogony": clan.cosmogony,
+        "taboos": clan.taboos,
+        "relations": relations_detailed,
+        "founded_year": clan.founded_year,
+        "members": members,
+    }
+
+
 def _get_universe(universe_id: str) -> Universe:
     if universe_id in universes:
         return universes[universe_id]
