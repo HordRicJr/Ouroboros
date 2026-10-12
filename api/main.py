@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -12,14 +13,85 @@ from engine.constants import UniverseConstants
 from engine.engine import Universe
 from engine.llm import HuggingFaceClient, MockLLMClient
 from engine.multiverse import MultiverseRegistry
-from engine.persistence import MemoryStore, Store
+from engine.persistence import PostgresStore, SQLiteStore, Store
 
 logger = logging.getLogger("ouroboros.api")
+
+# Registre local et persistance (Postgres si configuré, sinon SQLite durable sur disque)
+database_url = os.environ.get("DATABASE_URL")
+if database_url and database_url.startswith("postgres"):
+    store: Store = PostgresStore(database_url)
+    try:
+        store.init()
+    except (RuntimeError, ValueError, OSError) as exc:
+        logger.warning("Impossible d'initialiser Postgres, repli sur SQLite: %s", exc)
+        store = SQLiteStore("data/ouroboros.db")
+else:
+    store = SQLiteStore("data/ouroboros.db")
+
+multiverse: MultiverseRegistry = MultiverseRegistry()
+universes: dict[str, Universe] = {}
+
+# Tâches asynchrones de simulation continue H24
+_running_tasks: dict[str, asyncio.Task[None]] = {}
+_running_speeds: dict[str, float] = {"main": 1.0}
+
+
+async def _universe_step_loop(universe_id: str):
+    logger.info("Boucle de simulation continue H24 démarrée pour '%s'", universe_id)
+    step_count = 0
+    try:
+        while True:
+            speed = _running_speeds.get(universe_id, 1.0)
+            delay = max(0.05, 1.0 / max(speed, 0.1))
+            await asyncio.sleep(delay)
+            u = universes.get(universe_id)
+            if u:
+                u.step(1)
+                step_count += 1
+                if step_count % 10 == 0:
+                    try:
+                        store.save(u)
+                    except (RuntimeError, ValueError, OSError) as s_err:
+                        logger.error("Erreur de sauvegarde périodique de '%s': %s", universe_id, s_err)
+    except asyncio.CancelledError:
+        logger.info("Boucle de simulation continue stoppée pour '%s'", universe_id)
+        u = universes.get(universe_id)
+        if u:
+            try:
+                store.save(u)
+            except (RuntimeError, ValueError, OSError):
+                pass
+    except (RuntimeError, ValueError, KeyError) as exc:
+        logger.error("Erreur durant la simulation continue de '%s': %s", universe_id, exc)
+
+
+def _start_universe_loop(universe_id: str, speed: float = 1.0):
+    _running_speeds[universe_id] = speed
+    task = _running_tasks.get(universe_id)
+    if task is None or task.done():
+        _running_tasks[universe_id] = asyncio.create_task(_universe_step_loop(universe_id))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Démarrage automatique H24 de l'univers principal dès le lancement du serveur
+    logger.info("Démarrage du service Ouroboros API - Lancement de la simulation H24 pour 'main'...")
+    _start_universe_loop("main", speed=1.0)
+    yield
+    # Arrêt propre lors de l'arrêt du serveur
+    logger.info("Arrêt du service Ouroboros API...")
+    for uid, task in list(_running_tasks.items()):
+        if not task.done():
+            task.cancel()
+    _running_tasks.clear()
+
 
 app = FastAPI(
     title="Ouroboros API",
     version="1.0.0",
     description="API FastAPI pour le simulateur récursif d'univers Ouroboros.",
+    lifespan=lifespan,
 )
 
 # Configuration CORS
@@ -34,37 +106,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Registre local
-store: Store = MemoryStore()
-multiverse: MultiverseRegistry = MultiverseRegistry()
-universes: dict[str, Universe] = {}
-
-# Tâches asynchrones de simulation en direct
-_running_tasks: dict[str, asyncio.Task[None]] = {}
-_running_speeds: dict[str, float] = {}
-
-
-async def _universe_step_loop(universe_id: str):
+# Initialisation ou chargement persistant de l'univers 'main'
+if store.exists("main"):
     try:
-        while True:
-            speed = _running_speeds.get(universe_id, 1.0)
-            delay = max(0.05, 1.0 / max(speed, 0.1))
-            await asyncio.sleep(delay)
-            u = universes.get(universe_id)
-            if u:
-                u.step(1)
-                store.save(u)
-    except asyncio.CancelledError:
-        logger.info("Boucle de simulation stoppée pour %s", universe_id)
-        raise
-    except (RuntimeError, ValueError, KeyError) as exc:
-        logger.error("Erreur durant la simulation de %s: %s", universe_id, exc)
+        _default_u = store.load("main")
+        logger.info("Univers 'main' chargé depuis la persistance (Tick: %d, Date: %s)", _default_u.tick, _default_u.date)
+    except (RuntimeError, ValueError, KeyError, OSError) as exc:
+        logger.warning("Erreur chargement 'main': %s - réinitialisation", exc)
+        _default_u = Universe("main", 42)
+        store.save(_default_u)
+else:
+    _default_u = Universe("main", 42)
+    store.save(_default_u)
 
-
-# Initialisation d'un univers par défaut pour /api/universes
-_default_u = Universe("main", 42)
 universes["main"] = _default_u
-store.save(_default_u)
 multiverse.register(_default_u)
 
 
@@ -136,12 +191,9 @@ def get_universe(universe_id: str) -> dict[str, Any]:
 @app.post("/universes/{universe_id}/play")
 def play_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
     u = _get_universe(universe_id)
-    _running_speeds[universe_id] = speed
-    task = _running_tasks.get(universe_id)
-    if task is None or task.done():
-        _running_tasks[universe_id] = asyncio.create_task(_universe_step_loop(universe_id))
+    _start_universe_loop(universe_id, speed)
     return {
-        "message": f"Simulation de l'univers '{universe_id}' démarrée",
+        "message": f"Simulation de l'univers '{universe_id}' active H24",
         "running": True,
         "speed": speed,
         "tick": u.tick,
@@ -155,11 +207,26 @@ def pause_universe(universe_id: str) -> dict[str, Any]:
     task = _running_tasks.pop(universe_id, None)
     if task and not task.done():
         task.cancel()
+    store.save(u)
     return {
         "message": f"Simulation de l'univers '{universe_id}' mise en pause",
         "running": False,
         "tick": u.tick,
         "date": str(u.date),
+    }
+
+
+@app.post("/universes/{universe_id}/speed")
+def speed_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    _running_speeds[universe_id] = speed
+    task = _running_tasks.get(universe_id)
+    is_running = task is not None and not task.done()
+    return {
+        "id": universe_id,
+        "speed": speed,
+        "running": is_running,
+        "tick": u.tick,
     }
 
 
@@ -200,6 +267,8 @@ def reset_universe(universe_id: str) -> dict[str, Any]:
     u_new = Universe(u_old.id, u_old.seed, consts=u_old.consts, start_year=u_old.start_year, parent_id=u_old.parent_id)
     universes[universe_id] = u_new
     store.save(u_new)
+    # Relancer immédiatement la simulation H24 au jour 0
+    _start_universe_loop(universe_id, _running_speeds.get(universe_id, 1.0))
     return {
         "message": f"Univers '{universe_id}' réinitialisé au commencement.",
         "info": u_new.info(),

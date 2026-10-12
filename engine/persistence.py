@@ -52,6 +52,116 @@ class MemoryStore:
         return [{"id": k, "snapshots": sorted(v)} for k, v in self._snaps.items()]
 
 
+class SQLiteStore:
+    def __init__(self, db_path: str = "data/ouroboros.db"):
+        import os
+        self.db_path = db_path
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+        self.init()
+
+    def _conn(self):
+        import sqlite3
+        return sqlite3.connect(self.db_path, timeout=30.0)
+
+    def init(self) -> None:
+        with self._conn() as c:
+            c.execute("""
+            CREATE TABLE IF NOT EXISTS universes (
+                id TEXT PRIMARY KEY,
+                seed INTEGER NOT NULL,
+                parent_id TEXT,
+                constants TEXT NOT NULL,
+                start_year INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+            c.execute("""
+            CREATE TABLE IF NOT EXISTS snapshots (
+                universe_id TEXT NOT NULL,
+                tick INTEGER NOT NULL,
+                data BLOB NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (universe_id, tick)
+            );
+            """)
+            c.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                universe_id TEXT NOT NULL,
+                tick INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                payload TEXT NOT NULL
+            );
+            """)
+            c.execute("CREATE INDEX IF NOT EXISTS events_u_tick ON events (universe_id, tick);")
+
+    def exists(self, universe_id: str) -> bool:
+        with self._conn() as c:
+            row = c.execute("SELECT 1 FROM universes WHERE id=?", (universe_id,)).fetchone()
+            return row is not None
+
+    def save(self, u: Universe) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO universes (id, seed, parent_id, constants, start_year) VALUES (?,?,?,?,?)",
+                (u.id, u.seed, u.parent_id, json.dumps(u.consts.to_dict()), u.start_year),
+            )
+            c.execute(
+                "INSERT OR REPLACE INTO snapshots (universe_id, tick, data) VALUES (?,?,?)",
+                (u.id, u.tick, u.snapshot()),
+            )
+            c.execute("""
+            DELETE FROM snapshots
+            WHERE universe_id = ?
+              AND tick NOT IN (
+                  SELECT tick FROM snapshots WHERE universe_id = ? ORDER BY tick DESC LIMIT 50
+              )
+            """, (u.id, u.id))
+
+    def load(self, universe_id: str, tick: int | None = None) -> Universe:
+        with self._conn() as c:
+            if tick is None:
+                row = c.execute(
+                    "SELECT data FROM snapshots WHERE universe_id=? ORDER BY tick DESC LIMIT 1",
+                    (universe_id,),
+                ).fetchone()
+            else:
+                row = c.execute(
+                    "SELECT data FROM snapshots WHERE universe_id=? AND tick<=? ORDER BY tick DESC LIMIT 1",
+                    (universe_id, tick),
+                ).fetchone()
+        if not row:
+            raise KeyError(universe_id)
+        return Universe.from_snapshot(bytes(row[0]))
+
+    def append_events(self, universe_id: str, events: list[Event]) -> None:
+        if not events:
+            return
+        with self._conn() as c:
+            c.executemany(
+                "INSERT INTO events (universe_id, tick, type, payload) VALUES (?,?,?,?)",
+                [(universe_id, e.tick, e.type, json.dumps(e.payload)) for e in events],
+            )
+
+    def events(self, universe_id, since_tick=0, until_tick=None, limit=1000):
+        q = "SELECT tick, type, payload FROM events WHERE universe_id=? AND tick>=?"
+        args: list = [universe_id, since_tick]
+        if until_tick is not None:
+            q += " AND tick<=?"
+            args.append(until_tick)
+        q += " ORDER BY id LIMIT ?"
+        args.append(limit)
+        with self._conn() as c:
+            return [Event(t, ty, json.loads(p)) for t, ty, p in c.execute(q, args).fetchall()]
+
+    def list_universes(self) -> list[dict]:
+        with self._conn() as c:
+            return [
+                {"id": i, "seed": s, "parent_id": p, "start_year": y}
+                for i, s, p, y in c.execute("SELECT id, seed, parent_id, start_year FROM universes").fetchall()
+            ]
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS universes (
     id TEXT PRIMARY KEY, seed BIGINT NOT NULL, parent_id TEXT, constants JSONB NOT NULL,

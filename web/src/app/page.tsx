@@ -96,18 +96,11 @@ export default function Home() {
   const [asking, setAsking] = useState(false);
   const [stepping, setStepping] = useState<number | null>(null);
   const [resetting, setResetting] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
   const [speed, setSpeed] = useState<number>(1);
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const isPlayingRef = useRef(isPlaying);
-  isPlayingRef.current = isPlaying;
-  const speedRef = useRef(speed);
-  speedRef.current = speed;
-  const loopActiveRef = useRef(false);
-  const hasUserToggled = useRef(false);
-
-  const refresh = useCallback(async () => {
+  const refreshFull = useCallback(async () => {
     const [u, w, n, s, t, c, p] = await Promise.all([
       getJson<UniverseInfo>("/universes/main"),
       getJson<WorldMapInfo>("/universes/main/map"),
@@ -120,8 +113,11 @@ export default function Home() {
     setOnline(u !== null);
     if (u) {
       setUniverse(u);
-      if (u.is_running !== undefined && !hasUserToggled.current) {
+      if (u.is_running !== undefined) {
         setIsPlaying(Boolean(u.is_running));
+      }
+      if (u.speed) {
+        setSpeed(u.speed);
       }
     }
     if (w) setWorld(w);
@@ -135,56 +131,69 @@ export default function Home() {
     if (p) setDeities(p.deities ?? []);
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 10000);
-    return () => clearInterval(id);
-  }, [refresh]);
+  const refreshTick = useCallback(async () => {
+    const u = await getJson<UniverseInfo>("/universes/main");
+    if (u) {
+      setOnline(true);
+      setUniverse((prev) => {
+        if (prev && (prev.settlements_count !== u.settlements_count || prev.notables_count !== u.notables_count)) {
+          refreshFull();
+        }
+        return u;
+      });
+      if (u.is_running !== undefined) {
+        setIsPlaying(Boolean(u.is_running));
+      }
+      if (u.speed) {
+        setSpeed(u.speed);
+      }
+    } else {
+      setOnline(false);
+    }
+  }, [refreshFull]);
 
-  // Boucle d'exécution continue quand la simulation est démarrée
+  // Initialisation et rafraîchissement global périodique
+  useEffect(() => {
+    refreshFull();
+    const id = setInterval(refreshFull, 12000);
+    return () => clearInterval(id);
+  }, [refreshFull]);
+
+  // Suivi en temps réel H24 : synchronisation avec l'horloge du serveur
   useEffect(() => {
     if (!isPlaying) return;
-    let mounted = true;
+    const intervalMs = speed === 30 ? 750 : speed === 5 ? 1000 : 1500;
+    const timer = setInterval(refreshTick, intervalMs);
+    return () => clearInterval(timer);
+  }, [isPlaying, speed, refreshTick]);
 
-    // Intervalle adapté à la vitesse choisie : 1x = 1000ms (1s = 1 jour), 5x = 500ms, 30x = 250ms
-    const intervalMs = speed === 1 ? 1000 : speed === 5 ? 500 : 250;
-    const timer = setInterval(async () => {
-      if (!mounted || !isPlayingRef.current || loopActiveRef.current) return;
-      loopActiveRef.current = true;
-      try {
-        await fetch(`${API}/universes/main/step`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ days: speedRef.current }),
-        });
-        await refresh();
-      } catch (err) {
-        console.error("Erreur de simulation continue:", err);
-      } finally {
-        loopActiveRef.current = false;
-      }
-    }, intervalMs);
-
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, [isPlaying, speed, refresh]);
+  useEffect(() => {
+    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
+  }, [chats, asking, selected]);
 
   const togglePlay = async () => {
-    hasUserToggled.current = true;
     const nextState = !isPlaying;
     setIsPlaying(nextState);
     try {
       if (nextState) {
-        await fetch(`${API}/universes/main/play?speed=${speedRef.current}`, { method: "POST" });
+        await fetch(`${API}/universes/main/play?speed=${speed}`, { method: "POST" });
       } else {
         await fetch(`${API}/universes/main/pause`, { method: "POST" });
       }
     } catch (e) {
-      console.warn("Appel API play/pause fallback vers boucle locale:", e);
+      console.warn("Erreur togglePlay serveur:", e);
     }
-    await refresh();
+    await refreshTick();
+  };
+
+  const changeSpeed = async (newSpeed: number) => {
+    setSpeed(newSpeed);
+    try {
+      await fetch(`${API}/universes/main/speed?speed=${newSpeed}`, { method: "POST" });
+    } catch (e) {
+      console.warn("Erreur changeSpeed:", e);
+    }
+    await refreshTick();
   };
 
   const step = async (days: number) => {
@@ -195,7 +204,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ days }),
       });
-      await refresh();
+      await refreshFull();
     } catch (e) {
       console.error("Erreur de pas:", e);
     } finally {
@@ -204,16 +213,13 @@ export default function Home() {
   };
 
   const reset = async () => {
-    if (!confirm("Voulez-vous redémarrer la simulation à l'instant originel (Jour 0) ?")) return;
-    hasUserToggled.current = true;
-    setIsPlaying(false);
+    if (!confirm("Voulez-vous réinitialiser l'univers à l'instant originel (Jour 0) ? La simulation H24 reprendra à zéro.")) return;
     setResetting(true);
     try {
-      await fetch(`${API}/universes/main/pause`, { method: "POST" });
       await fetch(`${API}/universes/main/reset`, { method: "POST" });
       setSelected(null);
       setChats({});
-      await refresh();
+      await refreshFull();
     } catch (e) {
       console.error("Erreur reset univers:", e);
     } finally {
@@ -245,7 +251,7 @@ export default function Home() {
     }
     setChats((c) => ({ ...c, [pid]: [...(c[pid] ?? []), { sender: "them", author: selected.name, text: answer }] }));
     setAsking(false);
-    refresh();
+    refreshFull();
   };
 
   const phase = universe?.civilization_phase ?? "Aube";
@@ -284,10 +290,12 @@ export default function Home() {
           <div className="status-row">
             <span className={`dot ${online === null ? "" : online ? "online" : "offline"}`} />
             <strong style={{ color: "var(--text)" }}>
-              {online === null ? "Connexion…" : online ? "Moteur connecté" : "Serveur inaccessible"}
+              {online === null ? "Connexion…" : online ? (isPlaying ? "Moteur H24 actif" : "Moteur en pause") : "Serveur inaccessible"}
             </strong>
           </div>
-          <div style={{ wordBreak: "break-all" }}>{API.replace("https://", "")}</div>
+          <div style={{ wordBreak: "break-all", fontSize: "0.72rem", color: "var(--text-dim)" }}>
+            {API.replace("https://", "")} · {online ? (isPlaying ? "Tourne 24/7" : "Suspendu") : "Hors ligne"}
+          </div>
           {budget && (
             <>
               <div className="status-row" style={{ justifyContent: "space-between" }}>
@@ -331,12 +339,12 @@ export default function Home() {
                 <span style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>({Math.round((universe.season_phase ?? 0) * 100)}%)</span>
               </span>
             )}
-            {/* BOUTON DÉMARRER / PAUSE */}
+            {/* BOUTON DÉMARRER / PAUSE SERVEUR H24 */}
             <button
               id="btn-play-pause"
               className={`btn ${isPlaying ? "btn-pause" : "btn-play"}`}
               onClick={togglePlay}
-              title={isPlaying ? "Mettre la simulation en pause" : "Démarrer la simulation (avance automatique du temps)"}
+              title={isPlaying ? "Mettre le moteur serveur en pause" : "Démarrer le moteur serveur 24/7"}
             >
               {isPlaying ? (
                 <>
@@ -347,33 +355,33 @@ export default function Home() {
               ) : (
                 <>
                   <Play size={15} fill="currentColor" />
-                  <span>Démarrer</span>
+                  <span>Démarrer H24</span>
                 </>
               )}
             </button>
 
             {/* SÉLECTEUR DE VITESSE */}
-            <div className="speed-group" title="Vitesse d'écoulement du temps">
+            <div className="speed-group" title="Vitesse de la simulation sur le serveur">
               <button
                 id="speed-1x"
                 className={`speed-btn ${speed === 1 ? "active" : ""}`}
-                onClick={() => setSpeed(1)}
-                title="1 jour simulé par seconde"
+                onClick={() => changeSpeed(1)}
+                title="1 jour simulé par seconde (vitesse par défaut)"
               >
                 1x
               </button>
               <button
                 id="speed-5x"
                 className={`speed-btn ${speed === 5 ? "active" : ""}`}
-                onClick={() => setSpeed(5)}
-                title="5 jours par seconde"
+                onClick={() => changeSpeed(5)}
+                title="5 jours simulés par seconde"
               >
                 5x
               </button>
               <button
                 id="speed-30x"
                 className={`speed-btn ${speed === 30 ? "active" : ""}`}
-                onClick={() => setSpeed(30)}
+                onClick={() => changeSpeed(30)}
                 title="1 mois (30 jours) par tick rapide"
               >
                 30x
@@ -381,19 +389,19 @@ export default function Home() {
             </div>
 
             {/* AVANCE MANUELLE */}
-            <div className="btn-group" title="Avancer manuellement dans le temps">
-              <button id="step-day" className="btn" disabled={stepping !== null || isPlaying} onClick={() => step(1)} title="Avancer de 1 jour">
+            <div className="btn-group" title="Intervenir : avancer manuellement dans le temps">
+              <button id="step-day" className="btn" disabled={stepping !== null} onClick={() => step(1)} title="Avancer de 1 jour">
                 {stepping === 1 ? <Loader2 size={14} className="spin" /> : <span>+1 j</span>}
               </button>
-              <button id="step-month" className="btn" disabled={stepping !== null || isPlaying} onClick={() => step(30)} title="Avancer de 1 mois">
+              <button id="step-month" className="btn" disabled={stepping !== null} onClick={() => step(30)} title="Avancer de 1 mois">
                 {stepping === 30 ? <Loader2 size={14} className="spin" /> : <span>+1 m</span>}
               </button>
-              <button id="step-year" className="btn" disabled={stepping !== null || isPlaying} onClick={() => step(365)} title="Avancer de 1 an">
+              <button id="step-year" className="btn" disabled={stepping !== null} onClick={() => step(365)} title="Avancer de 1 an">
                 {stepping === 365 ? <Loader2 size={14} className="spin" /> : <span>+1 an</span>}
               </button>
             </div>
 
-            <button id="refresh" className="btn chip" onClick={refresh} aria-label="Actualiser" title="Actualiser les données">
+            <button id="refresh" className="btn chip" onClick={refreshFull} aria-label="Actualiser" title="Actualiser toutes les données">
               <RefreshCw size={15} />
             </button>
 
@@ -404,7 +412,7 @@ export default function Home() {
               disabled={resetting || stepping !== null}
               onClick={reset}
               aria-label="Redémarrer"
-              title="Redémarrer la simulation au jour 0"
+              title="Réinitialiser l'univers au Jour 0 (le moteur H24 repart à zéro)"
             >
               {resetting ? <Loader2 size={15} className="spin" /> : <RotateCcw size={15} />}
               <span>Redémarrer</span>
@@ -433,9 +441,13 @@ export default function Home() {
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
                     <CalendarDays size={16} style={{ color: "#5bb8f5" }} />
                     Progression de l&apos;année {universe?.year ?? 0}
-                    {isPlaying && (
-                      <span className="live-pill">
-                        <span className="pulse-dot" /> Simulation active ({speed}x)
+                    {isPlaying ? (
+                      <span className="live-pill" title="Le moteur tourne en continu 24/7 sur le serveur">
+                        <span className="pulse-dot" /> Serveur H24 actif ({speed}x)
+                      </span>
+                    ) : (
+                      <span className="live-pill" style={{ background: "rgba(245, 158, 11, 0.15)", borderColor: "rgba(245, 158, 11, 0.4)", color: "#fbbf24" }}>
+                        ⏸️ Moteur en pause
                       </span>
                     )}
                   </span>
