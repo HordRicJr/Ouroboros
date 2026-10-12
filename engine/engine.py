@@ -14,6 +14,7 @@ from .constants import UniverseConstants
 from .disasters import DisasterManager
 from .ecology import Ecosystem
 from .events import Event
+from .justice import JusticeSystem
 from .language import LanguageRegistry
 from .llm import LLMClient
 from .notable import NotableProfile
@@ -44,6 +45,7 @@ class Universe:
                  disasters: DisasterManager | None = None,
                  religion: ReligionRegistry | None = None,
                  settlements: SettlementManager | None = None,
+                 justice: JusticeSystem | None = None,
                  notables: dict[int, NotableProfile] | None = None,
                  ai_budget: AIBudgetManager | None = None):
         self.id = universe_id
@@ -66,6 +68,8 @@ class Universe:
         self.disasters = disasters or DisasterManager()
         self.religion = religion or ReligionRegistry.genesis(self.rng)
         self.settlements = settlements or SettlementManager.genesis(self.society)
+        self.justice = justice or JusticeSystem()
+        self.justice.assign_ranks(self.society, self.people)
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
@@ -121,11 +125,13 @@ class Universe:
                 out += rel_evs
                 set_evs = self.settlements.step(self.tick, d.year, self.society, self.people, self.technology, self.rng)
                 out += set_evs
+                just_evs = self.justice.step(self.tick, d.year, self.society, self.people, self.rng)
+                out += just_evs
             step_events = self.people.step(self.tick, self.eco, self.rng, self.consts.mutation_rate)
             out += step_events
             soc_events = self.society.step(self.tick, d.year, self.people, self.eco, self.rng, self.world, is_new_year=(d.day_of_year == 0))
             out += soc_events
-            all_step_evs = step_events + soc_events + disaster_evs + (tech_evs + war_evs + rel_evs + set_evs if d.day_of_year == 0 else [])
+            all_step_evs = step_events + soc_events + disaster_evs + (tech_evs + war_evs + rel_evs + set_evs + just_evs if d.day_of_year == 0 else [])
             if d.day_of_year == 0:
                 self.chronicles.record_from_events(all_step_evs, d.year, self.tick)
             self._update_notables_memory(all_step_evs, d.year)
@@ -264,6 +270,20 @@ class Universe:
                     for mid in c.member_ids:
                         if mid in self.notables:
                             self.notables[mid].add_memory(self.tick, year, f"Notre campement {sname} s'élève au rang de {tname} !", impact=0.85)
+            elif ev.type == "law_enacted":
+                lname = ev.payload.get("law_name")
+                clan_id = ev.payload.get("clan_id")
+                c = self.society.clans.get(clan_id)
+                if c:
+                    for mid in c.member_ids:
+                        if mid in self.notables:
+                            self.notables[mid].add_memory(self.tick, year, f"Notre clan a édicté une grande loi coutumière : {lname}", impact=0.8)
+            elif ev.type == "trial_held":
+                accused_id = ev.payload.get("accused_id")
+                verdict = ev.payload.get("verdict")
+                punishment = ev.payload.get("punishment")
+                if accused_id in self.notables:
+                    self.notables[accused_id].add_memory(self.tick, year, f"J'ai été jugé par les anciens ({verdict}) : {punishment}", impact=0.9)
 
     def drain_events(self) -> list[Event]:
         ev, self.pending_events = self.pending_events, []
@@ -285,6 +305,7 @@ class Universe:
                 "disasters": self.disasters.to_dict(),
                 "religion": self.religion.to_dict(),
                 "settlements": self.settlements.to_dict(),
+                "justice": self.justice.to_dict(),
                 "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
                 "ai_budget": self.ai_budget.to_dict()}
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
@@ -308,12 +329,13 @@ class Universe:
         disasters = DisasterManager.from_dict(meta["disasters"]) if "disasters" in meta else None
         religion = ReligionRegistry.from_dict(meta["religion"]) if "religion" in meta else None
         settlements = SettlementManager.from_dict(meta["settlements"]) if "settlements" in meta else None
+        justice = JusticeSystem.from_dict(meta["justice"]) if "justice" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
                    meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society,
                    languages, technology, warfare, chronicles, disasters, religion, settlements,
-                   notables, ai_budget)
+                   justice, notables, ai_budget)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
@@ -365,4 +387,6 @@ class Universe:
                 "active_disasters_count": len(self.disasters.active_disasters()),
                 "sacred_sites_count": len(self.religion.sacred_sites),
                 "settlements_count": len(self.settlements.settlements),
+                "legal_codes_count": len(self.justice.legal_codes),
+                "trials_count": len(self.justice.trials),
                 "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}

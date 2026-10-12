@@ -391,6 +391,16 @@ def get_settlements(universe_id: str) -> list[dict[str, Any]]:
     return [s.to_dict() for s in u.settlements.settlements.values()]
 
 
+@app.get("/universes/{universe_id}/justice")
+def get_justice(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "legal_codes": [c.to_dict() for c in u.justice.legal_codes.values()],
+        "trials": [t.to_dict() for t in u.justice.trials],
+        "person_ranks": {str(k): v for k, v in u.justice.person_ranks.items()},
+    }
+
+
 def _get_universe(universe_id: str) -> Universe:
     if universe_id in universes:
         return universes[universe_id]
