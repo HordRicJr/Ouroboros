@@ -55,6 +55,7 @@ pgdata/
 .env.*
 !.env.example
 .deploy/
+*.pem
 
 # Models (GGUF, ONNX, weights) - JAMAIS DANS GIT
 models/
