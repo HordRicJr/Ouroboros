@@ -7,6 +7,7 @@ import json
 import numpy as np
 
 from .budget import AIBudgetManager
+from .chronicles import ChronicleKeeper
 from .climate import Climate, Weather
 from .clock import Calendar, Date
 from .constants import UniverseConstants
@@ -20,6 +21,7 @@ from .rng import Rng
 from .society import Society
 from .species import Species
 from .technology import TechnologyRegistry
+from .warfare import WarfareManager
 from .worldmap import WorldMap, generate_world
 
 SEASONS_N = ["printemps", "été", "automne", "hiver"]  # hémisphère nord
@@ -34,6 +36,8 @@ class Universe:
                  society: Society | None = None,
                  languages: LanguageRegistry | None = None,
                  technology: TechnologyRegistry | None = None,
+                 warfare: WarfareManager | None = None,
+                 chronicles: ChronicleKeeper | None = None,
                  notables: dict[int, NotableProfile] | None = None,
                  ai_budget: AIBudgetManager | None = None):
         self.id = universe_id
@@ -51,6 +55,8 @@ class Universe:
         self.society = society or Society.genesis(self.people, self.eco, self.rng, self.world, tick)
         self.languages = languages or LanguageRegistry.genesis(self.rng)
         self.technology = technology or TechnologyRegistry.genesis(self.society)
+        self.warfare = warfare or WarfareManager()
+        self.chronicles = chronicles or ChronicleKeeper()
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
@@ -98,11 +104,16 @@ class Universe:
                 lang_evs = self.languages.step(self.tick, d.year, self.rng.gen("lang", self.tick))
                 for le in lang_evs:
                     out.append(Event(self.tick, le["type"], le))
+                war_evs = self.warfare.step(self.tick, d.year, self.society, self.people, self.technology, self.world, self.rng)
+                out += war_evs
             step_events = self.people.step(self.tick, self.eco, self.rng, self.consts.mutation_rate)
             out += step_events
             soc_events = self.society.step(self.tick, d.year, self.people, self.eco, self.rng, self.world, is_new_year=(d.day_of_year == 0))
             out += soc_events
-            self._update_notables_memory(step_events + soc_events, d.year)
+            all_step_evs = step_events + soc_events + (tech_evs + war_evs if d.day_of_year == 0 else [])
+            if d.day_of_year == 0:
+                self.chronicles.record_from_events(all_step_evs, d.year, self.tick)
+            self._update_notables_memory(all_step_evs, d.year)
             self.tick += 1
         self.pending_events.extend(out)
         return out
@@ -194,6 +205,28 @@ class Universe:
                     for mid in c.member_ids:
                         if mid in self.notables:
                             self.notables[mid].add_memory(self.tick, year, f"Nos amis du {teacher_name} nous ont enseigné : {tech_name}", impact=0.7)
+            elif ev.type == "war_declared":
+                att_id = ev.payload.get("attacker_clan_id")
+                def_id = ev.payload.get("defender_clan_id")
+                att_name = ev.payload.get("attacker_clan_name")
+                def_name = ev.payload.get("defender_clan_name")
+                for cid, enemy in [(att_id, def_name), (def_id, att_name)]:
+                    c = self.society.clans.get(cid)
+                    if c:
+                        for mid in c.member_ids:
+                            if mid in self.notables:
+                                self.notables[mid].add_memory(self.tick, year, f"Guerre déclarée contre le {enemy} !", impact=0.95)
+            elif ev.type == "peace_treaty":
+                c1_id = ev.payload.get("clan1_id")
+                c2_id = ev.payload.get("clan2_id")
+                c1_name = ev.payload.get("clan1_name")
+                c2_name = ev.payload.get("clan2_name")
+                for cid, other in [(c1_id, c2_name), (c2_id, c1_name)]:
+                    c = self.society.clans.get(cid)
+                    if c:
+                        for mid in c.member_ids:
+                            if mid in self.notables:
+                                self.notables[mid].add_memory(self.tick, year, f"Traité de paix signé avec le {other}", impact=0.85)
 
     def drain_events(self) -> list[Event]:
         ev, self.pending_events = self.pending_events, []
@@ -210,6 +243,8 @@ class Universe:
                 "society": self.society.to_dict(),
                 "languages": self.languages.to_dict(),
                 "technology": self.technology.to_dict(),
+                "warfare": self.warfare.to_dict(),
+                "chronicles": self.chronicles.to_dict(),
                 "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
                 "ai_budget": self.ai_budget.to_dict()}
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
@@ -228,11 +263,13 @@ class Universe:
         society = Society.from_dict(meta["society"]) if "society" in meta else None
         languages = LanguageRegistry.from_dict(meta["languages"]) if "languages" in meta else None
         technology = TechnologyRegistry.from_dict(meta["technology"]) if "technology" in meta else None
+        warfare = WarfareManager.from_dict(meta["warfare"]) if "warfare" in meta else None
+        chronicles = ChronicleKeeper.from_dict(meta["chronicles"]) if "chronicles" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
                    meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society,
-                   languages, technology, notables, ai_budget)
+                   languages, technology, warfare, chronicles, notables, ai_budget)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
@@ -260,6 +297,18 @@ class Universe:
         self.ai_budget.record_call(self.tick, tokens_used=180)
         return response
 
+    def spawn_child(self, child_id: str, seed: int | None = None, amplitude: float = 0.05) -> Universe:
+        """Génère un univers enfant récursif avec dérivation des constantes."""
+        child_seed = seed if seed is not None else self.rng.child_seed(f"child-{child_id}")
+        child_consts = self.consts.mutate(self.rng, amplitude=amplitude)
+        return Universe(
+            universe_id=child_id,
+            seed=child_seed,
+            consts=child_consts,
+            start_year=0,
+            parent_id=self.id,
+        )
+
     def info(self) -> dict:
         d = self.date
         return {"id": self.id, "seed": self.seed, "tick": self.tick, "date": str(d), "year": d.year,
@@ -267,4 +316,6 @@ class Universe:
                 "clans_count": len(self.society.clans),
                 "languages_count": len(self.languages.languages),
                 "technologies_known": sum(len(s.unlocked_techs) for s in self.technology.clan_states.values()),
+                "active_wars_count": len(self.warfare.active_wars()),
+                "chronicles_count": len(self.chronicles.entries),
                 "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}

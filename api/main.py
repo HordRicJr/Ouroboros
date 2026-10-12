@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from engine.constants import UniverseConstants
 from engine.engine import Universe
 from engine.llm import HuggingFaceClient, MockLLMClient
+from engine.multiverse import MultiverseRegistry
 from engine.persistence import MemoryStore, Store
 
 app = FastAPI(
@@ -31,12 +32,14 @@ app.add_middleware(
 
 # Registre local
 store: Store = MemoryStore()
+multiverse: MultiverseRegistry = MultiverseRegistry()
 universes: dict[str, Universe] = {}
 
 # Initialisation d'un univers par défaut pour /api/universes
 _default_u = Universe("main", 42)
 universes["main"] = _default_u
 store.save(_default_u)
+multiverse.register(_default_u)
 
 
 class CreateUniverseRequest(BaseModel):
@@ -48,6 +51,12 @@ class CreateUniverseRequest(BaseModel):
     gravity: float = Field(default=9.81)
     mutation_rate: float = Field(default=0.01)
     base_temperature: float = Field(default=15.0)
+
+
+class SpawnUniverseRequest(BaseModel):
+    child_id: str = Field(..., json_schema_extra={"example": "eden-child-01"})
+    seed: int | None = Field(default=None, description="Graine aléatoire optionnelle (auto-dérivée si omise)")
+    amplitude: float = Field(default=0.05, description="Amplitude de mutation des lois physiques (±%)")
 
 
 class StepRequest(BaseModel):
@@ -308,6 +317,51 @@ def get_technology(universe_id: str) -> dict[str, Any]:
         "catalog": catalog,
         "clans_technology": clans_tech,
     }
+
+
+@app.get("/universes/{universe_id}/chronicles")
+def get_chronicles(universe_id: str, limit: int = 25) -> list[dict[str, Any]]:
+    u = _get_universe(universe_id)
+    return [e.to_dict() for e in u.chronicles.recent_tales(limit)]
+
+
+@app.get("/universes/{universe_id}/wars")
+def list_wars(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    active = [w.to_dict() for w in u.warfare.active_wars()]
+    all_wars = [w.to_dict() for w in u.warfare.wars.values()]
+    return {
+        "active_wars": active,
+        "all_wars": all_wars,
+        "peace_treaties": u.warfare.peace_treaties,
+    }
+
+
+@app.post("/universes/{universe_id}/spawn", status_code=201)
+def spawn_child_universe(universe_id: str, req: SpawnUniverseRequest) -> dict[str, Any]:
+    parent = _get_universe(universe_id)
+    if req.child_id in universes or store.exists(req.child_id):
+        raise HTTPException(status_code=400, detail=f"L'univers '{req.child_id}' existe déjà.")
+
+    child = parent.spawn_child(req.child_id, seed=req.seed, amplitude=req.amplitude)
+    universes[child.id] = child
+    store.save(child)
+    multiverse.register(child)
+
+    return {
+        "message": "Univers enfant engendré avec succès",
+        "parent_id": parent.id,
+        "child_id": child.id,
+        "constants": child.consts.to_dict(),
+        "info": child.info(),
+    }
+
+
+@app.get("/universes/{universe_id}/lineage")
+def get_lineage(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    multiverse.register(u)
+    return multiverse.get_lineage(universe_id)
 
 
 def _get_universe(universe_id: str) -> Universe:
