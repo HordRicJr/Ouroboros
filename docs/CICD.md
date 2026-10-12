@@ -4,60 +4,26 @@ Ce document décrit pas à pas la configuration, l'exploitation et la maintenanc
 
 ---
 
-## 1. Génération et installation de la clé SSH de déploiement
+## 1. Clé SSH de déploiement et configuration serveur
+*(Automatisé avec succès par `infra/bootstrap-cicd.sh`)*
 
-Par mesure de sécurité stricte, **la clé d'administration (`Simulation.pem`) ne doit jamais être configurée dans GitHub Actions**. Vous devez générer une paire de clés dédiée au déploiement CI/CD.
-
-### Étape 1.1 : Générer la clé locale
-Ouvrez votre terminal local à la racine du dépôt :
-```bash
-mkdir -p .deploy
-ssh-keygen -t ed25519 -f .deploy/id_ed25519 -N "" -C "github-actions-ouroboros-deploy"
-```
-*(Le dossier `.deploy/` est déjà ignoré par Git).*
-
-### Étape 1.2 : Ajouter la clé publique sur le serveur EC2
-Connectez-vous une première fois avec votre clé d'administration :
-```bash
-ssh -i /chemin/vers/Simulation.pem ubuntu@13.49.23.84
-```
-Sur le serveur, ajoutez la clé publique :
-```bash
-# Copiez le contenu de votre fichier local .deploy/id_ed25519.pub dans ~/.ssh/authorized_keys :
-echo "ssh-ed25519 AAAA... github-actions-ouroboros-deploy" >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-exit
-```
+- Clé privée locale : `.deploy/id_ed25519` (git-ignorée, permissions NTFS restreintes).
+- Clé publique : installée dans `~/.ssh/authorized_keys` sur le serveur `13.49.23.84`.
+- Test de connexion : validé (`deploy-ok`).
 
 ---
 
-## 2. Injection des secrets dans GitHub
+## 2. Secrets GitHub et Environnement Production
+*(Automatisé avec succès par `infra/bootstrap-cicd.sh`)*
 
-Les secrets sont centralisés dans le fichier local `.env` (qui est strictement git-ignoré) :
-```ini
-EC2_HOST=13.49.23.84
-EC2_USER=ubuntu
-API_URL=https://13-49-23-84.sslip.io
-API_KEY=63cd138e7e49911fd2bcb48410d00e6d64fc1dcd44946c2d
-EC2_SSH_KEY_PATH=./.deploy/id_ed25519
-```
-
-### Méthode Automatique (Recommandée)
-Lancez simplement le script prévu :
-```bash
-bash infra/push-secrets.sh
-```
-Ce script lit `.env`, injecte le contenu de `.deploy/id_ed25519` sous le secret `EC2_SSH_KEY`, et pousse chaque variable dans GitHub Secrets via la CLI `gh`.
-
-### Méthode Manuelle
-Dans l'interface GitHub : **Settings** → **Secrets and variables** → **Actions** :
+L'environnement GitHub **`production`** a été initialisé sur le dépôt `HordRicJr/Ouroboros`.
+Tous les secrets ont été enregistrés aux deux niveaux (Dépôt + Environnement `production`) :
 - `EC2_HOST` : `13.49.23.84`
 - `EC2_USER` : `ubuntu`
+- `EC2_SSH_KEY` : Clé privée de déploiement ed25519
+- `EC2_KNOWN_HOSTS` : Empreinte de clé hôte ed25519 du serveur
 - `API_URL` : `https://13-49-23-84.sslip.io`
-- `API_KEY` : `63cd138e7e49911fd2bcb48410d00e6d64fc1dcd44946c2d`
-- `EC2_SSH_KEY` : Contenu complet de votre clé privée `.deploy/id_ed25519`
-
-Créez également un **environnement GitHub** nommé `production` (dans Settings → Environments) associé à la branche `main`.
+- `API_KEY` : Clé d'API configurée
 
 ---
 
