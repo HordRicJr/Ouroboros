@@ -13,12 +13,16 @@ from .clock import Calendar, Date
 from .constants import UniverseConstants
 from .disasters import DisasterManager
 from .ecology import Ecosystem
+from .economy import EconomyManager
+from .erudition import EruditionManager
 from .events import Event
 from .justice import JusticeSystem
 from .language import LanguageRegistry
 from .llm import LLMClient
 from .notable import NotableProfile
+from .ouroboros_cycle import OuroborosCycleManager
 from .people import People
+from .realms import RealmManager
 from .religion import ReligionRegistry
 from .rng import Rng
 from .settlement import SettlementManager
@@ -48,6 +52,10 @@ class Universe:
                  settlements: SettlementManager | None = None,
                  justice: JusticeSystem | None = None,
                  trade: TradeNetwork | None = None,
+                 economy: EconomyManager | None = None,
+                 realms: RealmManager | None = None,
+                 erudition: EruditionManager | None = None,
+                 ouroboros: OuroborosCycleManager | None = None,
                  notables: dict[int, NotableProfile] | None = None,
                  ai_budget: AIBudgetManager | None = None):
         self.id = universe_id
@@ -73,6 +81,10 @@ class Universe:
         self.justice = justice or JusticeSystem()
         self.justice.assign_ranks(self.society, self.people)
         self.trade = trade or TradeNetwork()
+        self.economy = economy or EconomyManager()
+        self.realms = realms or RealmManager()
+        self.erudition = erudition or EruditionManager()
+        self.ouroboros = ouroboros or OuroborosCycleManager()
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
@@ -132,11 +144,20 @@ class Universe:
                 out += just_evs
                 trade_evs = self.trade.step(self.tick, d.year, self.society, self.settlements, self.rng)
                 out += trade_evs
+                econ_evs = self.economy.step(self.tick, d.year, self.society, self.trade, self.rng)
+                out += econ_evs
+                realm_evs = self.realms.step(self.tick, d.year, self.society, self.people, self.rng)
+                out += realm_evs
+                erud_evs = self.erudition.step(self.tick, d.year, self.society, self.rng)
+                out += erud_evs
+                ouro_evs = self.ouroboros.step(self.tick, d.year, self.society, self.realms, self.rng)
+                out += ouro_evs
             step_events = self.people.step(self.tick, self.eco, self.rng, self.consts.mutation_rate)
             out += step_events
             soc_events = self.society.step(self.tick, d.year, self.people, self.eco, self.rng, self.world, is_new_year=(d.day_of_year == 0))
             out += soc_events
-            all_step_evs = step_events + soc_events + disaster_evs + (tech_evs + war_evs + rel_evs + set_evs + just_evs + trade_evs if d.day_of_year == 0 else [])
+            yearly_addons = (tech_evs + war_evs + rel_evs + set_evs + just_evs + trade_evs + econ_evs + realm_evs + erud_evs + ouro_evs) if d.day_of_year == 0 else []
+            all_step_evs = step_events + soc_events + disaster_evs + yearly_addons
             if d.day_of_year == 0:
                 self.chronicles.record_from_events(all_step_evs, d.year, self.tick)
             self._update_notables_memory(all_step_evs, d.year)
@@ -312,6 +333,10 @@ class Universe:
                 "settlements": self.settlements.to_dict(),
                 "justice": self.justice.to_dict(),
                 "trade": self.trade.to_dict(),
+                "economy": self.economy.to_dict(),
+                "realms": self.realms.to_dict(),
+                "erudition": self.erudition.to_dict(),
+                "ouroboros": self.ouroboros.to_dict(),
                 "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
                 "ai_budget": self.ai_budget.to_dict()}
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
@@ -337,12 +362,16 @@ class Universe:
         settlements = SettlementManager.from_dict(meta["settlements"]) if "settlements" in meta else None
         justice = JusticeSystem.from_dict(meta["justice"]) if "justice" in meta else None
         trade = TradeNetwork.from_dict(meta["trade"]) if "trade" in meta else None
+        economy = EconomyManager.from_dict(meta["economy"]) if "economy" in meta else None
+        realms = RealmManager.from_dict(meta["realms"]) if "realms" in meta else None
+        erudition = EruditionManager.from_dict(meta["erudition"]) if "erudition" in meta else None
+        ouroboros = OuroborosCycleManager.from_dict(meta["ouroboros"]) if "ouroboros" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
                    meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society,
                    languages, technology, warfare, chronicles, disasters, religion, settlements,
-                   justice, trade, notables, ai_budget)
+                   justice, trade, economy, realms, erudition, ouroboros, notables, ai_budget)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
@@ -398,4 +427,9 @@ class Universe:
                 "trials_count": len(self.justice.trials),
                 "trade_routes_count": len(self.trade.routes),
                 "expeditions_count": len(self.trade.expeditions),
+                "currencies_count": len(self.economy.currencies),
+                "kingdoms_count": len(self.realms.kingdoms),
+                "wonders_count": len(self.erudition.wonders),
+                "civilization_phase": self.ouroboros.cycle.current_phase,
+                "ouroboros_cycle": self.ouroboros.cycle.cycle_number,
                 "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}

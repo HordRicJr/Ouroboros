@@ -411,6 +411,36 @@ def get_trade(universe_id: str) -> dict[str, Any]:
     }
 
 
+@app.get("/universes/{universe_id}/economy")
+def get_economy(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "currencies": [c.to_dict() for c in u.economy.currencies.values()],
+        "total_minted": u.economy.total_minted,
+    }
+
+
+@app.get("/universes/{universe_id}/realms")
+def get_realms(universe_id: str) -> list[dict[str, Any]]:
+    u = _get_universe(universe_id)
+    return [k.to_dict() for k in u.realms.kingdoms.values()]
+
+
+@app.get("/universes/{universe_id}/erudition")
+def get_erudition(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "wonders": [w.to_dict() for w in u.erudition.wonders.values()],
+        "golden_ages": {str(k): v for k, v in u.erudition.golden_ages.items()},
+    }
+
+
+@app.get("/universes/{universe_id}/cycle")
+def get_cycle(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return u.ouroboros.cycle.to_dict()
+
+
 def _get_universe(universe_id: str) -> Universe:
     if universe_id in universes:
         return universes[universe_id]
