@@ -25,6 +25,7 @@ from .settlement import SettlementManager
 from .society import Society
 from .species import Species
 from .technology import TechnologyRegistry
+from .trade import TradeNetwork
 from .warfare import WarfareManager
 from .worldmap import WorldMap, generate_world
 
@@ -46,6 +47,7 @@ class Universe:
                  religion: ReligionRegistry | None = None,
                  settlements: SettlementManager | None = None,
                  justice: JusticeSystem | None = None,
+                 trade: TradeNetwork | None = None,
                  notables: dict[int, NotableProfile] | None = None,
                  ai_budget: AIBudgetManager | None = None):
         self.id = universe_id
@@ -70,6 +72,7 @@ class Universe:
         self.settlements = settlements or SettlementManager.genesis(self.society)
         self.justice = justice or JusticeSystem()
         self.justice.assign_ranks(self.society, self.people)
+        self.trade = trade or TradeNetwork()
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
@@ -127,11 +130,13 @@ class Universe:
                 out += set_evs
                 just_evs = self.justice.step(self.tick, d.year, self.society, self.people, self.rng)
                 out += just_evs
+                trade_evs = self.trade.step(self.tick, d.year, self.society, self.settlements, self.rng)
+                out += trade_evs
             step_events = self.people.step(self.tick, self.eco, self.rng, self.consts.mutation_rate)
             out += step_events
             soc_events = self.society.step(self.tick, d.year, self.people, self.eco, self.rng, self.world, is_new_year=(d.day_of_year == 0))
             out += soc_events
-            all_step_evs = step_events + soc_events + disaster_evs + (tech_evs + war_evs + rel_evs + set_evs + just_evs if d.day_of_year == 0 else [])
+            all_step_evs = step_events + soc_events + disaster_evs + (tech_evs + war_evs + rel_evs + set_evs + just_evs + trade_evs if d.day_of_year == 0 else [])
             if d.day_of_year == 0:
                 self.chronicles.record_from_events(all_step_evs, d.year, self.tick)
             self._update_notables_memory(all_step_evs, d.year)
@@ -306,6 +311,7 @@ class Universe:
                 "religion": self.religion.to_dict(),
                 "settlements": self.settlements.to_dict(),
                 "justice": self.justice.to_dict(),
+                "trade": self.trade.to_dict(),
                 "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
                 "ai_budget": self.ai_budget.to_dict()}
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
@@ -330,12 +336,13 @@ class Universe:
         religion = ReligionRegistry.from_dict(meta["religion"]) if "religion" in meta else None
         settlements = SettlementManager.from_dict(meta["settlements"]) if "settlements" in meta else None
         justice = JusticeSystem.from_dict(meta["justice"]) if "justice" in meta else None
+        trade = TradeNetwork.from_dict(meta["trade"]) if "trade" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
                    meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society,
                    languages, technology, warfare, chronicles, disasters, religion, settlements,
-                   justice, notables, ai_budget)
+                   justice, trade, notables, ai_budget)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en consommant le budget IA."""
@@ -389,4 +396,6 @@ class Universe:
                 "settlements_count": len(self.settlements.settlements),
                 "legal_codes_count": len(self.justice.legal_codes),
                 "trials_count": len(self.justice.trials),
+                "trade_routes_count": len(self.trade.routes),
+                "expeditions_count": len(self.trade.expeditions),
                 "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}

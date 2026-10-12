@@ -401,6 +401,16 @@ def get_justice(universe_id: str) -> dict[str, Any]:
     }
 
 
+@app.get("/universes/{universe_id}/trade")
+def get_trade(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "routes": [r.to_dict() for r in u.trade.routes.values()],
+        "expeditions": [e.to_dict() for e in u.trade.expeditions[-30:]],
+        "clan_wealth": {str(k): v for k, v in u.trade.clan_wealth.items()},
+    }
+
+
 def _get_universe(universe_id: str) -> Universe:
     if universe_id in universes:
         return universes[universe_id]
