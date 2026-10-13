@@ -538,8 +538,23 @@ class Universe:
         prof.add_memory(self.tick, self.date.year, f"Entretien avec le Voyageur Céleste : « {question[:50]} »", impact=0.85)
         prof.influence = min(100, prof.influence + 2)
 
+        # Si le joueur prescrit un tabou ou un interdit sacré
+        q_lower = question.lower()
+        if any(w in q_lower for w in ["tabou", "interdit", "défendu", "ne dois pas", "ne mange pas", "ne touchez pas", "défense de", "ne consomme pas"]):
+            taboo_candidate = "Interdit sacré transmis par le Voyageur"
+            for obj in ["pomme", "pommes", "fruit", "fruits", "viande", "sang", "arbre", "nuit", "feu", "eau", "chasse"]:
+                if obj in q_lower:
+                    taboo_candidate = f"Interdit sacré : ne point consommer ou toucher {obj}"
+                    break
+            clan_obj = self.society.get_person_clan(p.id)
+            if clan_obj and taboo_candidate not in clan_obj.taboos:
+                clan_obj.taboos.append(taboo_candidate)
+            if taboo_candidate not in prof.beliefs:
+                prof.beliefs.append(taboo_candidate)
+            prof.add_memory(self.tick, self.date.year, f"Le Voyageur céleste nous a ordonné un interdit sacré : « {taboo_candidate} »", impact=0.95)
+
         # Si le joueur donne un conseil spirituel ou de sagesse, enrichir ses croyances
-        if any(w in question.lower() for w in ["paix", "harmonie", "dieu", "étoile", "nature", "amour", "veillez", "ensemble"]):
+        if any(w in q_lower for w in ["paix", "harmonie", "dieu", "étoile", "nature", "amour", "veillez", "ensemble"]):
             prof.beliefs.append(f"Inspiration reçue du Voyageur : « {question[:45]}... »")
 
         # Inscrire l'événement dans les chroniques du monde

@@ -169,6 +169,63 @@ def api_health() -> dict[str, str]:
     return {"status": "ok", "api": "ok"}
 
 
+@app.get("/api/diagnostic/system")
+def get_system_diagnostic() -> dict[str, Any]:
+    import subprocess
+
+    import httpx
+
+    llama_health = "unknown"
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            r = client.get("http://127.0.0.1:8080/health")
+            llama_health = f"ok ({r.status_code})" if r.status_code == 200 else f"error ({r.status_code})"
+    except (httpx.HTTPError, OSError) as e:
+        llama_health = f"failed ({type(e).__name__}: {e})"
+
+    svc_status = ""
+    try:
+        res = subprocess.run(["systemctl", "status", "ouroboros-llm"], check=False, capture_output=True, text=True, timeout=4)
+        svc_status = res.stdout[:500] if res.stdout else res.stderr[:500]
+    except (subprocess.SubprocessError, OSError) as e:
+        svc_status = str(e)
+
+    models_files: list[str] = []
+    models_dir = os.path.expanduser("~/ouroboros/models")
+    if os.path.exists(models_dir):
+        try:
+            models_files = os.listdir(models_dir)
+        except OSError:
+            pass
+
+    log_tail = ""
+    log_file = os.path.expanduser("~/ouroboros/logs/models.log")
+    if os.path.exists(log_file):
+        try:
+            with open(log_file, encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                log_tail = "".join(lines[-25:])
+        except OSError:
+            pass
+
+    ram_info = ""
+    try:
+        res = subprocess.run(["free", "-h"], check=False, capture_output=True, text=True, timeout=4)
+        ram_info = res.stdout if res.stdout else res.stderr
+    except (subprocess.SubprocessError, OSError) as e:
+        ram_info = str(e)
+
+    return {
+        "llama_health": llama_health,
+        "service_status": svc_status,
+        "models_files": models_files,
+        "models_log_tail": log_tail,
+        "ram": ram_info,
+        "env_hf_token": bool(os.environ.get("HF_TOKEN")),
+        "env_llm_endpoint": os.environ.get("LLM_ENDPOINT", ""),
+    }
+
+
 @app.get("/api/universes")
 def list_api_universes() -> list[dict[str, Any]]:
     return [u.info() for u in universes.values()]
