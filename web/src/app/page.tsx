@@ -505,12 +505,8 @@ export default function Home() {
                 <StatCard
                   icon={Users}
                   label="Population mondiale"
-                  value={`${universe?.population ?? 2} habitants`}
-                  sub={
-                    universe?.population === 2
-                      ? "2 fondateurs (Adan & Eva)"
-                      : `${universe?.population ?? 2} vivants (Adan, Eva & ${((universe?.population ?? 2) - 2)} enfant${((universe?.population ?? 2) - 2) > 1 ? "s" : ""})`
-                  }
+                  value={`${universe?.population ?? (people.length || 0)} habitants`}
+                  sub={`${people[0]?.clan_name ?? "Bande pionnière"} (chasseurs-cueilleurs)`}
                   tone="#4fd1a5"
                 />
                 <StatCard
@@ -534,22 +530,22 @@ export default function Home() {
                 <StatCard
                   icon={Tent}
                   label="Clans & Tribus"
-                  value={`${universe?.clans_count ?? 1} clan`}
-                  sub="Lignée d'Adan & Eva"
+                  value={`${universe?.clans_count ?? 1} ${((universe?.clans_count ?? 1) > 1) ? "clans" : "clan"}`}
+                  sub={people[0]?.clan_name ?? "Clan fondateur"}
                   tone="#38bdf8"
                 />
                 <StatCard
                   icon={Crown}
                   label="Notables vivants"
-                  value={`${universe?.notables_count ?? 2} chefs`}
-                  sub="Dirigeants adultes (Adan & Eva)"
+                  value={`${universe?.notables_count ?? (notables.length || 0)} notables`}
+                  sub="Conseillers & doyens du clan"
                   tone="#8b7cf6"
                 />
                 <StatCard
                   icon={Castle}
                   label="Établissements"
-                  value={`${universe?.settlements_count ?? 1} campement`}
-                  sub="Havre-Éden"
+                  value={`${universe?.settlements_count ?? (settlements.length || 1)} ${((universe?.settlements_count ?? settlements.length) > 1) ? "campements" : "campement"}`}
+                  sub={settlements[0]?.name ?? "Campement d'origine"}
                   tone="#f08a5d"
                 />
                 <StatCard
@@ -594,13 +590,28 @@ export default function Home() {
               </div>
 
               {/* Panneau explicatif des habitants et de la lignée */}
-              <Panel icon={Users} title="Habitants du monde & Lignée humaine" badge={`${people.length || (universe?.population ?? 2)} personnes vivantes`}>
+              <Panel icon={Users} title="Habitants du monde & Lignée humaine" badge={`${people.length || (universe?.population ?? 0)} personnes vivantes`}>
                 {people.length === 0 ? (
                   <Empty icon={Users} text="Chargement des habitants du monde…" />
                 ) : (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", padding: "4px" }}>
                     {people.map((p) => {
-                      const emoji = p.id === 1 ? "👨" : p.id === 2 ? "👩" : p.age < 3 ? "👶" : p.sex === "M" ? "👦" : "👧";
+                      const father = p.father_id ? people.find((x) => x.id === p.father_id) : null;
+                      const mother = p.mother_id ? people.find((x) => x.id === p.mother_id) : null;
+                      const emoji =
+                        p.age < 3
+                          ? "👶"
+                          : p.age < 14
+                          ? p.sex === "M"
+                            ? "👦"
+                            : "👧"
+                          : p.age >= 45
+                          ? p.sex === "M"
+                            ? "👴"
+                            : "👵"
+                          : p.sex === "M"
+                          ? "👨"
+                          : "👩";
                       return (
                         <div
                           key={p.id}
@@ -632,11 +643,23 @@ export default function Home() {
                               </span>
                             </div>
                             <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "3px" }}>
-                              {p.age < 1 ? "Nourrisson (< 1 an)" : `${Math.floor(p.age)} ans`} · {p.sex === "M" ? "Homme" : "Femme"} · {p.clan_name ?? "Lignée d'Adan & Eva"}
+                              {p.age < 1 ? "Nourrisson (< 1 an)" : `${Math.floor(p.age)} ans`} · {p.sex === "M" ? "Homme" : "Femme"} · {p.clan_name ?? people[0]?.clan_name ?? "Clan pionnier"}
                             </div>
-                            {p.father_id && p.mother_id && (
+                            {father && mother ? (
                               <div style={{ fontSize: "0.72rem", color: "#5bb8f5", marginTop: "2px" }}>
-                                ↳ Enfant né d&apos;Adan & Eva
+                                ↳ Lignée : enfant de {father.name} &amp; {mother.name}
+                              </div>
+                            ) : father ? (
+                              <div style={{ fontSize: "0.72rem", color: "#5bb8f5", marginTop: "2px" }}>
+                                ↳ Lignée : enfant de {father.name}
+                              </div>
+                            ) : mother ? (
+                              <div style={{ fontSize: "0.72rem", color: "#5bb8f5", marginTop: "2px" }}>
+                                ↳ Lignée : enfant de {mother.name}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: "0.72rem", color: "#9ca3af", marginTop: "2px" }}>
+                                ↳ Génération fondatrice
                               </div>
                             )}
                           </div>

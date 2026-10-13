@@ -142,20 +142,12 @@ class Society:
             camp_members.setdefault(p.cell, []).append(p)
 
         for cell, members in sorted(camp_members.items(), key=lambda item: item[0]):
-            if soc.next_clan_id == 1:
-                # Premier clan originel de la Genèse en 4004 av. J.-C.
-                totem = "Arbre de Vie"
-                clan_name = "Lignée d'Adan & Eva"
-                cosmo = "Créés de la poussière de la terre et animés du souffle de vie originel."
-                taboo = ["Respecter le souffle de vie sacré et garder l'Alliance originelle."]
-                settlement_name = "Havre-Éden"
-            else:
-                totem = str(g.choice(_TOTEMS))
-                epithet = str(g.choice(_TERRITORY_EPITHETS))
-                clan_name = f"Clan du {totem} {epithet}"
-                cosmo = str(g.choice(_COSMOGONIES))
-                taboo = [str(g.choice(_TABOOS))]
-                settlement_name = f"Havre-{totem.split()[0]}"
+            totem = str(g.choice(_TOTEMS))
+            epithet = str(g.choice(_TERRITORY_EPITHETS))
+            clan_name = f"Clan du {totem} {epithet}"
+            cosmo = str(g.choice(_COSMOGONIES))
+            taboo = [str(g.choice(_TABOOS))]
+            settlement_name = f"Campement du {totem.split()[0]}"
 
             # Territoire immédiat : la cellule du camp et les voisines terrestres directes
             y, x = cell

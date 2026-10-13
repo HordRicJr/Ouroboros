@@ -22,11 +22,11 @@ from .genetics import (
 from .rng import Rng
 
 _FIRST_M = [
-    "Adan", "Seth", "Enosh", "Kenan", "Jared", "Enoch", "Mathus", "Lamek", "Noe", "Sem",
+    "Dan", "Seth", "Enosh", "Kenan", "Jared", "Enoch", "Mathus", "Lamek", "Noe", "Sem",
     "Cham", "Japhet", "Eber", "Peleg", "Abram", "Isaac", "Jacob", "Ruben", "Juda", "Joseph"
 ]
 _FIRST_F = [
-    "Eva", "Sara", "Ada", "Silla", "Dina", "Lia", "Rachel", "Noema", "Rebecca", "Milca",
+    "Hava", "Sara", "Ada", "Silla", "Dina", "Lia", "Rachel", "Noema", "Rebecca", "Milca",
     "Tamar", "Ruth", "Miryam", "Anna", "Debora", "Hana", "Sarra", "Ela", "Mara", "Ketsia"
 ]
 _END = ["", "el", "an", "ar", "en", "ir", "on", "us", "a", "or"]
@@ -109,9 +109,13 @@ class People:
 
     @classmethod
     def genesis(cls, eco, rng: Rng, tick: int = 0, couples_per_camp: int = 1) -> People:
-        """Genèse biblique originelle : exactement DEUX personnes au commencement (Adan & Eva).
-        Si l'écosystème spécifie plusieurs campements distincts (tests multi-clans),
-        instancie un couple fondateur par campement.
+        """Genèse anthropologique émergente : bande de chasseurs-cueilleurs viable (14-16 individus).
+        
+        Comprend par campement :
+        - 1 couple d'aînés / doyens du clan (âges 48-52 ans)
+        - 4 couples adultes en âge de subsistance et procréation (âges 19-35 ans)
+        - 5 enfants et adolescents avec filiation génétique directe
+        Génération entièrement procédurale des noms, génomes diploïdes et relations.
         """
         from .species import HUMAN
         people = cls()
@@ -122,29 +126,41 @@ class People:
         base = np.asarray(sp.traits)
         g = rng.gen("people-genesis")
 
-        if len(eco.human_cells) <= 1:
-            # Exactement DEUX PERSONNES au commencement du monde
-            y, x = eco.human_cells[0] if eco.human_cells else (50, 50)
-            m = people.add("M", sp.id, tick, (y, x), make_genome(base, g), g)
-            f = people.add("F", sp.id, tick, (y, x), make_genome(base, g), g)
-            m.name = "Adan"
-            f.name = "Eva"
-            m.birth_tick = tick - 20 * 365
-            f.birth_tick = tick - 18 * 365
-            m.spouse_ids, f.spouse_ids = [f.id], [m.id]
-            m.notable, f.notable = True, True
-        else:
-            # Campements multiples (ex: tests inter-clans, guerre ou diplomatie)
-            for i, (y, x) in enumerate(eco.human_cells):
+        camps = eco.human_cells if eco.human_cells else [(50, 50)]
+
+        for y, x in camps:
+            # 1. Couple d'aînés / doyens du clan (âges 48-52 ans)
+            elder_m = people.add("M", sp.id, tick, (y, x), make_genome(base, g), g)
+            elder_f = people.add("F", sp.id, tick, (y, x), make_genome(base, g), g)
+            elder_m.birth_tick = tick - int(g.integers(48, 54)) * 365
+            elder_f.birth_tick = tick - int(g.integers(46, 52)) * 365
+            elder_m.spouse_ids, elder_f.spouse_ids = [elder_f.id], [elder_m.id]
+            elder_m.notable, elder_f.notable = True, True
+
+            # 2. Couples d'adultes reproducteurs (âges 19-35 ans)
+            couples = []
+            adult_ages = [(32, 29), (28, 25), (24, 22), (21, 19)]
+            for m_age, f_age in adult_ages:
                 m = people.add("M", sp.id, tick, (y, x), make_genome(base, g), g)
                 f = people.add("F", sp.id, tick, (y, x), make_genome(base, g), g)
-                if i == 0:
-                    m.name = "Adan"
-                    f.name = "Eva"
-                m.birth_tick = tick - 20 * 365
-                f.birth_tick = tick - 18 * 365
+                m.birth_tick = tick - (m_age * 365 + int(g.integers(0, 180)))
+                f.birth_tick = tick - (f_age * 365 + int(g.integers(0, 180)))
                 m.spouse_ids, f.spouse_ids = [f.id], [m.id]
-                m.notable, f.notable = True, True
+                couples.append((m, f))
+
+            # 3. Enfants et adolescents de la bande avec filiation directe
+            child_specs = [
+                (couples[0], "M", 10),
+                (couples[0], "F", 7),
+                (couples[1], "M", 5),
+                (couples[1], "F", 3),
+                (couples[2], "M", 1),
+            ]
+            for (fa, mo), sex, c_age in child_specs:
+                c_genome = make_child(mo.genome_array(), fa.genome_array(), g, mutation_rate=0.01)
+                child = people.add(sex, sp.id, tick, (y, x), c_genome, g, mother=mo, father=fa)
+                child.birth_tick = tick - (c_age * 365 + int(g.integers(0, 120)))
+
         return people
 
     # --------------------------------------------------------------- requêtes
@@ -194,41 +210,23 @@ class People:
         return {"ancestors": asc(pid, up), "descendants": desc(pid, down)}
 
     # ------------------------------------------------------------------ pas
-    def _biblical_baseline_life(self, p: Person, tick: int) -> float:
-        """Calibre la longévité selon la référence biblique (Genèse antédiluvienne vers ère historique).
-        
-        Adam & Ève et les patriarches antédiluviens vivent plusieurs siècles (Genèse 5).
-        La longévité décroît progressivement au fil des millénaires pour converger vers 70-80 ans (Psaume 90).
-        """
-        years_from_start = tick / 365.0
-        if years_from_start < 1656:  # Période antédiluvienne (d'Adam au Déluge)
-            if p.id in (1, 2):       # Adan et Eva
-                return 930.0
-            return max(350.0, 912.0 - years_from_start * 0.3)
-        elif years_from_start < 2500:  # Patriarches postdiluviens (d'Abraham à Moïse)
-            return max(120.0, 350.0 - (years_from_start - 1656) * 0.25)
-        else:                          # Ère historique standard (Psaume 90)
-            return 80.0
+    def _human_baseline_life(self, p: Person) -> float:
+        """Espérance de vie naturelle d'un chasseur-cueilleur (anthropologique ~65 ans)."""
+        g = phenotype(p.genome_array())
+        return float(65.0 * (0.8 + 0.4 * g[I_LONG]))
 
     def _death_hazard_per_year(self, p: Person, age: float, food_f: float, tick: int = 0) -> float:
         g = phenotype(p.genome_array())
-        biblical_life = self._biblical_baseline_life(p, tick)
-        life = biblical_life * (0.8 + 0.4 * g[I_LONG])
-        base = 0.005 + 0.00010 * np.exp(6.0 * age / life)
-        
-        # Durant les premières générations bibliques, mortalité infantile minime
-        years_from_start = tick / 365.0
-        if years_from_start > 1500:
-            if age < 1:
-                base += 0.08
-            elif age < 5:
-                base += 0.02
-        else:
-            if age < 1:
-                base += 0.01
+        life = self._human_baseline_life(p)
+        base = 0.006 + 0.00012 * np.exp(6.0 * age / life)
+
+        if age < 1:
+            base += 0.05
+        elif age < 5:
+            base += 0.02
 
         base *= (1.5 - g[I_RES]) * (1.3 - 0.6 * g[I_IMM])
-        return float(base * (1 + 1.5 * (1 - food_f)))
+        return float(base * (1.0 + 1.5 * (1.0 - food_f)))
 
     def step(self, tick: int, eco, rng: Rng, mutation_rate: float, human_food: dict | None = None) -> list[Event]:
         events: list[Event] = []
@@ -272,12 +270,6 @@ class People:
                     if m_age < rules.marriage_min_age:
                         continue
                     
-                    # Déterminer les partenaires féminines éligibles :
-                    # Règle biblique originelle : tant que la population vivante totale est < 30
-                    # (commencement du monde), les enfants du premier couple s'unissent entre eux
-                    # pour fonder la lignée humaine (en évitant l'union directe parent-enfant).
-                    is_genesis_era = n_alive < 30 or (m.mother_id in (1, 2) and m.father_id in (1, 2))
-                    
                     options = []
                     for f in females:
                         if f.spouse_ids:
@@ -285,22 +277,12 @@ class People:
                         f_age = self.age_years(f, tick)
                         if f_age < rules.marriage_min_age:
                             continue
-                        # Écart d'âge plus large durant l'ère de grande longévité patriarcale
-                        max_gap = 150 if is_genesis_era else rules.max_age_gap
-                        if abs(f_age - m_age) > max_gap:
+                        if abs(f_age - m_age) > rules.max_age_gap:
                             continue
-                        
-                        if is_genesis_era:
-                            # Ne pas épouser son propre père ou sa propre mère
-                            if f.id in (m.mother_id, m.father_id) or m.id in (f.mother_id, f.father_id):
-                                continue
+                        if not self.are_kin(m.id, f.id, rules.kin_taboo_degree):
                             options.append(f)
-                        else:
-                            # Interdit de consanguinité normale une fois le monde peuplé
-                            if not self.are_kin(m.id, f.id, rules.kin_taboo_degree):
-                                options.append(f)
 
-                    if options and g.random() < 0.20:
+                    if options and g.random() < 0.25:
                         f = options[int(g.integers(0, len(options)))]
                         m.spouse_ids, f.spouse_ids = [f.id], [m.id]
                         events.append(Event(tick, "marriage", {"husband_id": m.id, "wife_id": f.id,
@@ -313,11 +295,8 @@ class People:
             rules = self.cultures.get(p.culture, CultureRules())
             age = self.age_years(p, tick)
             
-            # Période féconde :
-            # Dans la Genèse, Ève et les premières matriarches engendrent sur une très longue période de leur vie
-            biblical_life = self._biblical_baseline_life(p, tick)
-            max_fertile_age = min(350.0, biblical_life * 0.45) if biblical_life > 150 else 46.0
-            if not (15 <= age <= max_fertile_age):
+            # Période féconde biologique naturelle (15 à 45 ans)
+            if not (15 <= age <= 45.0):
                 continue
             if p.last_birth_tick is not None and (tick - p.last_birth_tick) / 365.0 < rules.min_birth_spacing_years:
                 continue
@@ -327,10 +306,9 @@ class People:
             if p.spouse_ids and self.persons[p.spouse_ids[0]].alive:
                 fa = self.persons[p.spouse_ids[0]]
             else:
-                is_genesis_era = n_alive < 30
                 c_males = [m for m in by_cell.get(p.cell, [])
                            if m.sex == "M" and m.alive and self.age_years(m, tick) >= 15
-                           and (is_genesis_era or not self.are_kin(p.id, m.id, degree=1))]
+                           and not self.are_kin(p.id, m.id, degree=1)]
                 if c_males:
                     fa = c_males[int(g.integers(0, len(c_males)))]
 

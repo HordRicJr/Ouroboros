@@ -67,16 +67,16 @@ class ContextualPersonaGenerator:
         if is_prohibition and mentions_apple:
             return (
                 "Un tabou sur les pommes ? Tu nous révèles donc que ce fruit porte un interdit céleste et sacré... "
-                "J'en fais le serment devant toi : ni moi, ni Eva, ni nos enfants ne porterons la main sur ces fruits de l'arbre. "
+                "J'en fais le serment devant toi : ni moi, ni les miens ne porterons la main sur ces fruits de l'arbre. "
                 "Nous laisserons la pomme sur sa branche pour ne point attirer le courroux des cieux. "
-                "Mais dis-moi, voyageur, quel péril frapperait notre chair et notre âme si l'un de nous venait à en croquer ?"
+                "Mais dis-moi, voyageur, quel péril frapperait notre chair et notre communauté si l'un de nous venait à en croquer ?"
             )
 
         if mentions_apple:
             return (
                 "La pomme... Tu évoques ce fruit qui mûrit au soleil des bosquets. "
                 "Tes paroles résonnent avec gravité, comme si cet arbre cachait un destin redoutable ou une épreuve pour notre innocence. "
-                "Nous garderons nos distances avec ce fruit défendu pour préserver la paix de notre maisonnée."
+                "Nous garderons nos distances avec ce fruit pour préserver la paix de notre campement."
             )
 
         if is_prohibition:
@@ -94,29 +94,21 @@ class ContextualPersonaGenerator:
 
         # 2. Salutations et présentations
         if any(w in query for w in ["salut", "bonjour", "cc", "hello", "coucou", "qui es-tu", "qui t'es", "qui es tu", "te presente"]):
-            if name.lower().startswith("adan"):
-                return (
-                    f"Salutations, Voyageur. Je suis Adan, Patriarche de cette maisonnée et le premier homme façonné sur cette terre. "
-                    f"En cette ère ({date_display}), je veille sur notre clan et auprès de ma compagne Eva. "
-                    f"Que la paix du ciel accompagne tes pas parmi nous."
-                )
-            if name.lower().startswith("eva"):
-                return (
-                    "Bienvenue à toi, noble voyageur. Je suis Eva, mère de tous les vivants et matriarche de notre foyer. "
-                    "Mes journées sont consacrées à veiller sur notre feu sacré et sur le souffle de notre descendance. "
-                    "Quelle parole céleste viens-tu apporter à notre campement ?"
-                )
             return (
-                f"Salutations, voyageur des songes. Je me nomme {name}, et je sers notre peuple en qualité de {title}. "
-                f"En cette année de {date_display}, notre sang s'enracine au sein de {clan}. "
-                f"Dis-moi, quelle quête ou quel dessein t'amène auprès du feu de mon clan ?"
+                f"Salutations, voyageur venu d'au-delà de l'horizon. Je me nomme {name}, et je sers notre communauté en qualité de {title}. "
+                f"En cette année de {date_display}, notre vie s'épanouit au sein de {clan}. "
+                f"Dis-moi, quelle quête ou quelle sagesse t'amène auprès du feu de notre campement ?"
             )
 
-        # 3. Compagne Eva / Conjoint / Mariage
-        if any(w in query for w in ["eva", "femme", "épouse", "compagne", "mariage", "conjoint"]):
+        # 3. Conjoint(e) / Mariage / Compagne
+        if any(w in query for w in ["femme", "épouse", "mari", "époux", "compagne", "compagnon", "mariage", "conjoint"]):
+            if has_spouse:
+                return (
+                    f"Mon alliance avec ma moitié est le souffle qui réchauffe mon cœur. À mes côtés, elle veille sur notre foyer "
+                    f"et partage chaque froidure et chaque joie de notre campement au sein de {clan}. Sans ce soutien, ce vaste monde ne serait qu'un désert de solitude."
+                )
             return (
-                "Eva est mon égale et le souffle qui réchauffe mon cœur. Façonnée à mes côtés, elle veille sur notre foyer "
-                "et partage chaque froidure et chaque joie de notre campement. Sans son regard, ce vaste monde ne serait qu'un désert de solitude."
+                f"Je n'ai point encore scellé d'union, mais au sein de {clan}, chaque membre est un frère ou une sœur de subsistance."
             )
 
         # 4. Famille, enfants et descendance

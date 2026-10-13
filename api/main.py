@@ -385,7 +385,7 @@ async def reset_universe(universe_id: str) -> dict[str, Any]:
     # Relancer immédiatement la simulation H24 au jour 0
     _start_universe_loop(universe_id, _running_speeds.get(universe_id, 1.0))
     return {
-        "message": f"Univers '{universe_id}' réinitialisé au commencement (4004 av. J.-C., Adan & Eva).",
+        "message": f"Univers '{universe_id}' réinitialisé au commencement (bande pionnière de chasseurs-cueilleurs).",
         "info": u_new.info(),
     }
 
@@ -435,19 +435,16 @@ def get_people(universe_id: str) -> list[dict[str, Any]]:
     for p in u.people.persons.values():
         clan = u.society.get_person_clan(p.id)
         age = u.people.age_years(p, u.tick)
-        if p.id == 1 and p.mother_id is None:
-            role = "Père fondateur & Chef"
-        elif p.id == 2 and p.mother_id is None:
-            role = "Mère fondatrice & Matriarche"
-        elif p.mother_id or p.father_id:
-            if age < 3:
-                role = "Nourrisson" if p.sex == "M" else "Nourrissonne"
-            elif age < 14:
-                role = "Enfant (Fils)" if p.sex == "M" else "Enfant (Fille)"
-            else:
-                role = "Adulte (Fils)" if p.sex == "M" else "Adulte (Fille)"
+        if p.id in u.notables and u.notables[p.id].rank_grade:
+            role = u.notables[p.id].rank_grade
+        elif age < 3:
+            role = "Nourrisson" if p.sex == "M" else "Nourrissonne"
+        elif age < 14:
+            role = "Enfant (Garçon)" if p.sex == "M" else "Enfant (Fille)"
+        elif age >= 48:
+            role = "Doyen du clan" if p.sex == "M" else "Doyenne du clan"
         else:
-            role = "Membre du clan"
+            role = "Chasseur-pêcheur" if p.sex == "M" else "Collectrice"
 
         res.append({
             "id": p.id,
