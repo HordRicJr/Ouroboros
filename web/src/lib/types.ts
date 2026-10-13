@@ -53,6 +53,20 @@ export interface Notable {
   memories_count: number;
 }
 
+export interface PersonInfo {
+  id: number;
+  name: string;
+  sex: string;
+  age: number;
+  alive: boolean;
+  cell: [number, number];
+  notable: boolean;
+  role: string;
+  clan_name?: string | null;
+  mother_id?: number | null;
+  father_id?: number | null;
+}
+
 export interface Settlement {
   id: number;
   name: string;

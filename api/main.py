@@ -324,6 +324,43 @@ def get_notables(universe_id: str) -> list[dict[str, Any]]:
     return res
 
 
+@app.get("/universes/{universe_id}/people")
+def get_people(universe_id: str) -> list[dict[str, Any]]:
+    u = _get_universe(universe_id)
+    res = []
+    for p in u.people.persons.values():
+        clan = u.society.get_person_clan(p.id)
+        age = u.people.age_years(p, u.tick)
+        if p.id == 1 and p.mother_id is None:
+            role = "Père fondateur & Chef"
+        elif p.id == 2 and p.mother_id is None:
+            role = "Mère fondatrice & Matriarche"
+        elif p.mother_id or p.father_id:
+            if age < 3:
+                role = "Nourrisson" if p.sex == "M" else "Nourrissonne"
+            elif age < 14:
+                role = "Enfant (Fils)" if p.sex == "M" else "Enfant (Fille)"
+            else:
+                role = "Adulte (Fils)" if p.sex == "M" else "Adulte (Fille)"
+        else:
+            role = "Membre du clan"
+
+        res.append({
+            "id": p.id,
+            "name": p.name,
+            "sex": p.sex,
+            "age": round(age, 1),
+            "alive": p.alive,
+            "cell": p.cell,
+            "notable": p.notable,
+            "role": role,
+            "clan_name": clan.name if clan else None,
+            "mother_id": p.mother_id,
+            "father_id": p.father_id,
+        })
+    return res
+
+
 @app.post("/universes/{universe_id}/notables/{person_id}/ask")
 def ask_notable_endpoint(universe_id: str, person_id: int, req: AskNotableRequest) -> dict[str, Any]:
     u = _get_universe(universe_id)

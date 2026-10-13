@@ -47,6 +47,7 @@ import {
   type Chronicle,
   type Deity,
   type Notable,
+  type PersonInfo,
   type Settlement,
   type TradeRoute,
   type UniverseInfo,
@@ -90,6 +91,7 @@ export default function Home() {
   const [routes, setRoutes] = useState<TradeRoute[]>([]);
   const [chronicles, setChronicles] = useState<Chronicle[]>([]);
   const [deities, setDeities] = useState<Deity[]>([]);
+  const [people, setPeople] = useState<PersonInfo[]>([]);
   const [selected, setSelected] = useState<Notable | null>(null);
   const [chats, setChats] = useState<Record<number, ChatMessage[]>>({});
   const [question, setQuestion] = useState("");
@@ -101,7 +103,7 @@ export default function Home() {
   const feedRef = useRef<HTMLDivElement>(null);
 
   const refreshFull = useCallback(async () => {
-    const [u, w, n, s, t, c, p] = await Promise.all([
+    const [u, w, n, s, t, c, p, peo] = await Promise.all([
       getJson<UniverseInfo>("/universes/main"),
       getJson<WorldMapInfo>("/universes/main/map"),
       getJson<Notable[]>("/universes/main/notables"),
@@ -109,6 +111,7 @@ export default function Home() {
       getJson<{ routes: TradeRoute[] }>("/universes/main/trade"),
       getJson<Chronicle[]>("/universes/main/chronicles"),
       getJson<{ deities: Deity[] }>("/universes/main/pantheon"),
+      getJson<PersonInfo[]>("/universes/main/people"),
     ]);
     setOnline(u !== null);
     if (u) {
@@ -129,6 +132,7 @@ export default function Home() {
     if (t) setRoutes(t.routes ?? []);
     if (c) setChronicles(c);
     if (p) setDeities(p.deities ?? []);
+    if (peo) setPeople(peo);
   }, []);
 
   const refreshTick = useCallback(async () => {
@@ -432,7 +436,12 @@ export default function Home() {
                 <StatCard
                   icon={Users}
                   label="Population mondiale"
-                  value={`${universe?.population ?? 2} âmes`}
+                  value={`${universe?.population ?? 2} habitants`}
+                  sub={
+                    universe?.population === 2
+                      ? "2 fondateurs (Adan & Eva)"
+                      : `${universe?.population ?? 2} vivants (Adan, Eva & ${((universe?.population ?? 2) - 2)} enfant${((universe?.population ?? 2) - 2) > 1 ? "s" : ""})`
+                  }
                   tone="#4fd1a5"
                 />
                 <StatCard
@@ -443,14 +452,51 @@ export default function Home() {
                       ? `${Math.abs(universe.year)} av. J.-C.`
                       : `An ${universe?.year ?? 0}`
                   }
+                  sub="Départ en 4004 av. J.-C."
                   tone="#5bb8f5"
                 />
-                <StatCard icon={Sun} label="Saison en cours" value={universe?.season ?? "Printemps"} tone="#f2b84b" />
-                <StatCard icon={Tent} label="Clans & Tribus" value={universe?.clans_count ?? 1} tone="#38bdf8" />
-                <StatCard icon={Crown} label="Notables vivants" value={`${universe?.notables_count ?? 2} actifs`} tone="#8b7cf6" />
-                <StatCard icon={Castle} label="Établissements" value={universe?.settlements_count ?? 1} tone="#f08a5d" />
-                <StatCard icon={Route} label="Routes commerciales" value={universe?.trade_routes_count ?? 0} tone="#fbbf24" />
-                <StatCard icon={Landmark} label="Royaumes & Merveilles" value={`${universe?.kingdoms_count ?? 0} / ${universe?.wonders_count ?? 0}`} tone="#ec7fb6" />
+                <StatCard
+                  icon={Sun}
+                  label="Saison en cours"
+                  value={universe?.season ?? "Printemps"}
+                  sub={`Jour ${universe?.day ?? 1} / ${universe?.year_length ?? 365}`}
+                  tone="#f2b84b"
+                />
+                <StatCard
+                  icon={Tent}
+                  label="Clans & Tribus"
+                  value={`${universe?.clans_count ?? 1} clan`}
+                  sub="Lignée d'Adan & Eva"
+                  tone="#38bdf8"
+                />
+                <StatCard
+                  icon={Crown}
+                  label="Notables vivants"
+                  value={`${universe?.notables_count ?? 2} chefs`}
+                  sub="Dirigeants adultes (Adan & Eva)"
+                  tone="#8b7cf6"
+                />
+                <StatCard
+                  icon={Castle}
+                  label="Établissements"
+                  value={`${universe?.settlements_count ?? 1} campement`}
+                  sub="Havre-Éden"
+                  tone="#f08a5d"
+                />
+                <StatCard
+                  icon={Route}
+                  label="Routes commerciales"
+                  value={universe?.trade_routes_count ?? 0}
+                  sub="S'activera dès 2+ clans"
+                  tone="#fbbf24"
+                />
+                <StatCard
+                  icon={Landmark}
+                  label="Royaumes & Merveilles"
+                  value={`${universe?.kingdoms_count ?? 0} / ${universe?.wonders_count ?? 0}`}
+                  sub="Nécessite villes et bourgs"
+                  tone="#ec7fb6"
+                />
               </div>
 
               {/* Barre de progression de l'année */}
@@ -477,6 +523,60 @@ export default function Home() {
                   <div style={{ width: `${Math.min(100, Math.round(((universe?.day ?? 1) / (universe?.year_length ?? 365)) * 100))}%`, transition: "width 0.3s ease" }} />
                 </div>
               </div>
+
+              {/* Panneau explicatif des habitants et de la lignée */}
+              <Panel icon={Users} title="Habitants du monde & Lignée humaine" badge={`${people.length || (universe?.population ?? 2)} personnes vivantes`}>
+                {people.length === 0 ? (
+                  <Empty icon={Users} text="Chargement des habitants du monde…" />
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", padding: "4px" }}>
+                    {people.map((p) => {
+                      const emoji = p.id === 1 ? "👨" : p.id === 2 ? "👩" : p.age < 3 ? "👶" : p.sex === "M" ? "👦" : "👧";
+                      return (
+                        <div
+                          key={p.id}
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "var(--radius-sm)",
+                            background: "rgba(255, 255, 255, 0.03)",
+                            border: "1px solid var(--border)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "12px",
+                          }}
+                        >
+                          <span style={{ fontSize: "1.8rem" }}>{emoji}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                              <strong style={{ fontSize: "0.95rem" }}>{p.name}</strong>
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  background: p.notable ? "rgba(139, 92, 246, 0.2)" : "rgba(79, 209, 165, 0.2)",
+                                  color: p.notable ? "#a78bfa" : "#4fd1a5",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {p.role}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "3px" }}>
+                              {p.age < 1 ? "Nourrisson (< 1 an)" : `${Math.floor(p.age)} ans`} · {p.sex === "M" ? "Homme" : "Femme"} · {p.clan_name ?? "Lignée d'Adan & Eva"}
+                            </div>
+                            {p.father_id && p.mother_id && (
+                              <div style={{ fontSize: "0.72rem", color: "#5bb8f5", marginTop: "2px" }}>
+                                ↳ Enfant né d&apos;Adan & Eva
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Panel>
 
               <div className="grid-2">
                 <Panel icon={MapPin} title="Carte des territoires" badge={world ? `${Math.round(world.land_fraction * 100)} % de terres` : undefined} flush>

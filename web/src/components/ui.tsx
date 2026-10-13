@@ -5,11 +5,13 @@ export function StatCard({
   icon: Icon,
   label,
   value,
+  sub,
   tone,
 }: {
   icon: LucideIcon;
   label: string;
   value: ReactNode;
+  sub?: ReactNode;
   tone: string;
 }) {
   return (
@@ -19,9 +21,10 @@ export function StatCard({
       </div>
       <div>
         <div className="stat-label">{label}</div>
-        <div className="stat-value" style={{ marginTop: 8 }}>
+        <div className="stat-value" style={{ marginTop: 6 }}>
           {value}
         </div>
+        {sub && <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>{sub}</div>}
       </div>
     </div>
   );
