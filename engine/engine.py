@@ -195,14 +195,18 @@ class Universe:
                 continue
 
             # 7. Rôles militaires : Capitaine de Guerre (M14 - Warfare)
-            if clan and any(w.active and clan.id in (w.attacker_clan_id, w.defender_clan_id) for w in self.warfare.wars.values()):
-                if p.sex == "M" and self.people.age_years(p, self.tick) >= 18:
-                    p.notable = True
-                    prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                    prof.title = f"Capitaine de Guerre{clan_name}"
-                    prof.rank_grade = "Capitaine de Guerre"
-                    prof.influence = 55
-                    continue
+            if (
+                clan
+                and any(w.active and clan.id in (w.attacker_clan_id, w.defender_clan_id) for w in self.warfare.wars.values())
+                and p.sex == "M"
+                and self.people.age_years(p, self.tick) >= 18
+            ):
+                p.notable = True
+                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                prof.title = f"Capitaine de Guerre{clan_name}"
+                prof.rank_grade = "Capitaine de Guerre"
+                prof.influence = 55
+                continue
 
             # 8. Doyen du Conseil des Anciens (âge >= 40 ans dans la communauté)
             if self.people.age_years(p, self.tick) >= 40 and clan and p.notable:

@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from api.main import app
 from engine.engine import Universe
-from engine.technology import TECH_CATALOG, ClanTechState, TechnologyRegistry
+from engine.technology import TECH_CATALOG, ClanTechState
 
 
 def test_tech_catalog_definitions():

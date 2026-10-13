@@ -1,5 +1,4 @@
 import numpy as np
-
 from univers.ecology import _diffuse
 from univers.engine import Universe
 from univers.genetics import NT, make_child, make_genome, phenotype

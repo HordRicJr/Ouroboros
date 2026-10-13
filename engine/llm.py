@@ -4,11 +4,14 @@ Prend en charge :
 - MockLLMClient (déterministe, pour les tests sans réseau/GPU)
 - HuggingFaceInferenceClient (API Serverless ou Endpoint dédié Hugging Face / vLLM AWS)
 """
+import logging
 import os
 import re
 from typing import Protocol
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient(Protocol):
@@ -67,9 +70,9 @@ class ContextualPersonaGenerator:
                 )
             elif name.lower().startswith("eva"):
                 return (
-                    f"Bienvenue à toi, noble voyageur. Je suis Eva, mère de tous les vivants et matriarche de notre foyer. "
-                    f"Mes journées sont consacrées à veiller sur notre feu sacré et sur le souffle de notre descendance. "
-                    f"Quelle parole céleste viens-tu apporter à notre campement ?"
+                    "Bienvenue à toi, noble voyageur. Je suis Eva, mère de tous les vivants et matriarche de notre foyer. "
+                    "Mes journées sont consacrées à veiller sur notre feu sacré et sur le souffle de notre descendance. "
+                    "Quelle parole céleste viens-tu apporter à notre campement ?"
                 )
             else:
                 return (
@@ -82,19 +85,19 @@ class ContextualPersonaGenerator:
         if any(w in query for w in ["enfant", "fils", "fille", "bébé", "pelega", "eva", "adan", "femme", "mari", "famille", "lignée", "parent"]):
             if has_children:
                 return (
-                    f"Par la bénédiction de la vie, le foyer s'agrandit. Les cris de notre descendance résonnent autour de nous, "
-                    f"et voir nos petits grandir est notre plus grande fierté en cette aube du monde. "
-                    f"Chaque enfant est une promesse que la terre continuera d'être habitée après nous."
+                    "Par la bénédiction de la vie, le foyer s'agrandit. Les cris de notre descendance résonnent autour de nous, "
+                    "et voir nos petits grandir est notre plus grande fierté en cette aube du monde. "
+                    "Chaque enfant est une promesse que la terre continuera d'être habitée après nous."
                 )
             elif has_spouse:
                 return (
-                    f"Pour l'instant, notre force réside dans l'alliance de nos cœurs. Nous partageons chaque repas, "
-                    f"chaque abri contre la pluie et nous espérons que nos enfants peupleront bientôt les vallées et les collines."
+                    "Pour l'instant, notre force réside dans l'alliance de nos cœurs. Nous partageons chaque repas, "
+                    "chaque abri contre la pluie et nous espérons que nos enfants peupleront bientôt les vallées et les collines."
                 )
             else:
                 return (
-                    f"Les liens du sang sont sacrés pour moi. Même lorsque les hivers sont rudes, c'est l'espoir de voir "
-                    f"prospérer la lignée de nos aïeux qui me pousse à me lever à chaque aurore."
+                    "Les liens du sang sont sacrés pour moi. Même lorsque les hivers sont rudes, c'est l'espoir de voir "
+                    "prospérer la lignée de nos aïeux qui me pousse à me lever à chaque aurore."
                 )
 
         # 3. Rôle, fonctions, hiérarchie et devoirs
@@ -108,17 +111,17 @@ class ContextualPersonaGenerator:
         # 4. Nourriture, météo, saisons et survie
         if any(w in query for w in ["faim", "manger", "nourriture", "chasse", "cueillette", "froid", "chaud", "météo", "saison", "vivres", "hiver"]):
             return (
-                f"La terre nous offre ce que le ciel lui accorde. Nous suivons les traces du gibier le long des rivières "
-                f"et cueillons les fruits mûrs des sous-bois. "
-                f"Nous prions pour que la sécheresse ou le grand froid n'éprouvent pas notre humble campement."
+                "La terre nous offre ce que le ciel lui accorde. Nous suivons les traces du gibier le long des rivières "
+                "et cueillons les fruits mûrs des sous-bois. "
+                "Nous prions pour que la sécheresse ou le grand froid n'éprouvent pas notre humble campement."
             )
 
         # 5. Croyances, dieux, cosmogonie et esprits
         if any(w in query for w in ["dieu", "dieux", "esprits", "totem", "ciel", "terre", "sacré", "prière", "âme", "mort", "culte", "ancêtres"]):
             return (
-                f"Nous vénérons le souffle de la création et les forces qui meuvent les étoiles et les saisons. "
-                f"Le totem de notre clan nous rappelle d'où nous venons et quelle promesse nous unit à cette terre. "
-                f"Respecter les esprits de nos aînés est la clé de notre survie."
+                "Nous vénérons le souffle de la création et les forces qui meuvent les étoiles et les saisons. "
+                "Le totem de notre clan nous rappelle d'où nous venons et quelle promesse nous unit à cette terre. "
+                "Respecter les esprits de nos aînés est la clé de notre survie."
             )
 
         # 6. Ordres, conseils, avenir ou prophétie
@@ -165,8 +168,8 @@ class MockLLMClient:
                         content = data["choices"][0].get("message", {}).get("content", "").strip()
                         if content:
                             return content
-        except Exception:
-            pass
+        except (httpx.HTTPError, OSError, ValueError, KeyError) as err:
+            logger.debug("Local llama call bypassed: %s", err)
 
         # Repli incarné intelligent déterministe
         return ContextualPersonaGenerator.generate_response(messages)
@@ -209,9 +212,9 @@ class HuggingFaceClient:
                             return choice["message"]["content"].strip()
                     if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
                         return data[0]["generated_text"].strip()
-        except Exception:
-            # Repli élégant sur le générateur de persona contextuel
-            pass
+        except (httpx.HTTPError, OSError, ValueError, KeyError) as err:
+            logger.debug("HuggingFace/vLLM call fallback: %s", err)
 
         return ContextualPersonaGenerator.generate_response(messages)
+
 

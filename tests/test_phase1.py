@@ -1,5 +1,4 @@
 import numpy as np
-
 from univers.clock import Calendar
 from univers.constants import UniverseConstants
 from univers.engine import Universe

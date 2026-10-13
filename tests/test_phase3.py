@@ -1,11 +1,8 @@
-import numpy as np
-import pytest
 
 from univers.budget import AIBudgetManager
 from univers.engine import Universe
-from univers.immersion import ImmersionFilter, build_immersion_prompt
+from univers.immersion import ImmersionFilter
 from univers.llm import MockLLMClient
-from univers.notable import NotableProfile
 from univers.persistence import MemoryStore
 
 
