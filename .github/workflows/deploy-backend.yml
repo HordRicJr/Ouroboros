@@ -82,9 +82,9 @@ jobs:
 
       - name: Étape 1 (Bloquante) - Déploiement du code et redémarrage services
         run: |
-          echo "Exécution de ~/ouroboros/deploy.sh..."
+          echo "Exécution du déploiement avec rechargement des services..."
           ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-            "bash ~/ouroboros/deploy.sh"
+            "cd ~/ouroboros/app && ~/ouroboros/venv/bin/pip install -r requirements.txt && sudo systemctl daemon-reload && sudo systemctl restart ouroboros-engine ouroboros-api && for i in {1..20}; do if curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1; then echo 'API opérationnelle (port 8000)'; exit 0; fi; sleep 1; done; echo 'Timeout attente API'; exit 1"
 
       - name: Test de santé de l'API (/api/health) avec rollback automatique
         run: |
