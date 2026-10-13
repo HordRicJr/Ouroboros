@@ -546,9 +546,12 @@ class Universe:
                 if obj in q_lower:
                     taboo_candidate = f"Interdit sacré : ne point consommer ou toucher {obj}"
                     break
-            clan_obj = self.society.get_person_clan(p.id)
-            if clan_obj and taboo_candidate not in clan_obj.taboos:
-                clan_obj.taboos.append(taboo_candidate)
+            clan_obj = self.society.get_person_clan(p.id) or (next(iter(self.society.clans.values())) if self.society.clans else None)
+            if clan_obj:
+                if p.id not in clan_obj.member_ids:
+                    clan_obj.member_ids.append(p.id)
+                if taboo_candidate not in clan_obj.taboos:
+                    clan_obj.taboos.append(taboo_candidate)
             if taboo_candidate not in prof.beliefs:
                 prof.beliefs.append(taboo_candidate)
             prof.add_memory(self.tick, self.date.year, f"Le Voyageur céleste nous a ordonné un interdit sacré : « {taboo_candidate} »", impact=0.95)
