@@ -183,9 +183,12 @@ export default function Home() {
     }
   }, []);
 
+  const consecutiveErrorsRef = useRef(0);
+
   const refreshTick = useCallback(async () => {
     const u = await getJson<UniverseInfo>("/universes/main");
     if (u) {
+      consecutiveErrorsRef.current = 0;
       setOnline(true);
       setUniverse((prev) => {
         if (prev && (prev.settlements_count !== u.settlements_count || prev.notables_count !== u.notables_count)) {
@@ -200,21 +203,25 @@ export default function Home() {
         setSpeed(u.speed);
       }
     } else {
-      setOnline(false);
+      consecutiveErrorsRef.current += 1;
+      // Tolérance : marquer hors ligne uniquement après 3 échecs consécutifs pour éviter tout clignotement
+      if (consecutiveErrorsRef.current >= 3) {
+        setOnline(false);
+      }
     }
   }, [refreshFull]);
 
   // Initialisation et rafraîchissement global périodique
   useEffect(() => {
     refreshFull();
-    const id = setInterval(refreshFull, 12000);
+    const id = setInterval(refreshFull, 15000);
     return () => clearInterval(id);
   }, [refreshFull]);
 
-  // Suivi en temps réel H24 : synchronisation avec l'horloge du serveur
+  // Suivi en temps réel H24 : synchronisation avec l'horloge du serveur (intervalle calibré anti-congestion)
   useEffect(() => {
     if (!isPlaying) return;
-    const intervalMs = speed === 30 ? 750 : speed === 5 ? 1000 : 1500;
+    const intervalMs = speed === 30 ? 1200 : speed === 5 ? 2000 : 3000;
     const timer = setInterval(refreshTick, intervalMs);
     return () => clearInterval(timer);
   }, [isPlaying, speed, refreshTick]);
