@@ -142,7 +142,7 @@ class NotableAgent:
             "content": f"Voici ce qui t'arrive ou la question qu'on te pose : « {question_or_event} ». Que dis-tu ou que penses-tu ?"
         })
 
-        raw_response = self.llm.generate(messages, max_tokens=220, temperature=0.7)
+        raw_response = self.llm.generate(messages, max_tokens=80, temperature=0.7)
         sanitized = ImmersionFilter.sanitize(raw_response)
         
         # Enregistrer la réflexion dans le court terme

@@ -209,11 +209,11 @@ class MockLLMClient:
         # Tenter d'abord de contacter un LLM local actif (ex: llama-server sur le port 8080)
         local_url = os.environ.get("LLM_LOCAL_URL", "http://127.0.0.1:8080/v1/chat/completions")
         try:
-            with httpx.Client(timeout=3.0) as client:
+            with httpx.Client(timeout=18.0) as client:
                 payload = {
                     "model": "local",
                     "messages": messages,
-                    "max_tokens": max_tokens,
+                    "max_tokens": min(max_tokens, 80),
                     "temperature": temperature,
                 }
                 resp = client.post(local_url, json=payload)
@@ -252,14 +252,14 @@ class HuggingFaceClient:
         payload = {
             "model": self.model_id,
             "messages": messages,
-            "max_tokens": max_tokens,
+            "max_tokens": min(max_tokens, 80),
             "temperature": temperature,
         }
 
-        # 1. Tentative sur l'endpoint local ou configuré (timeout court si local)
-        timeout = 2.5 if "127.0.0.1" in self.api_url or "localhost" in self.api_url else 10.0
+        # 1. Tentative sur l'endpoint local ou configuré (timeout adapté pour CPU)
+        local_timeout = 18.0 if ("127.0.0.1" in self.api_url or "localhost" in self.api_url) else 10.0
         try:
-            with httpx.Client(timeout=timeout) as client:
+            with httpx.Client(timeout=local_timeout) as client:
                 resp = client.post(self.api_url, headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()

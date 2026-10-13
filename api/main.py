@@ -226,6 +226,43 @@ def get_system_diagnostic() -> dict[str, Any]:
     }
 
 
+@app.get("/api/diagnostic/llm_test")
+def test_local_llm(prompt: str = "Dis bonjour en une phrase.") -> dict[str, Any]:
+    import time
+
+    import httpx
+
+    t0 = time.time()
+    result = ""
+    error = None
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                "http://127.0.0.1:8080/v1/chat/completions",
+                json={
+                    "model": "local",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 50,
+                    "temperature": 0.7,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if "choices" in data and len(data["choices"]) > 0:
+                    result = data["choices"][0]["message"]["content"]
+            else:
+                error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+    except (httpx.HTTPError, OSError) as e:
+        error = f"{type(e).__name__}: {e}"
+
+    duration = round(time.time() - t0, 2)
+    return {
+        "result": result,
+        "duration_sec": duration,
+        "error": error,
+    }
+
+
 @app.get("/api/universes")
 def list_api_universes() -> list[dict[str, Any]]:
     return [u.info() for u in universes.values()]
