@@ -37,6 +37,9 @@ _running_tasks: dict[str, asyncio.Task[None]] = {}
 _running_speeds: dict[str, float] = {"main": 1.0}
 
 
+_main_event_loop: asyncio.AbstractEventLoop | None = None
+
+
 async def _universe_step_loop(universe_id: str):
     logger.info("Boucle de simulation continue H24 démarrée pour '%s'", universe_id)
     step_count = 0
@@ -62,19 +65,30 @@ async def _universe_step_loop(universe_id: str):
                 store.save(u)
             except (RuntimeError, ValueError, OSError):
                 pass
-    except (RuntimeError, ValueError, KeyError) as exc:
-        logger.error("Erreur durant la simulation continue de '%s': %s", universe_id, exc)
+    except Exception:
+        logger.exception("Erreur durant la simulation continue de '%s'", universe_id)
 
 
 def _start_universe_loop(universe_id: str, speed: float = 1.0):
     _running_speeds[universe_id] = speed
     task = _running_tasks.get(universe_id)
     if task is None or task.done():
-        _running_tasks[universe_id] = asyncio.create_task(_universe_step_loop(universe_id))
+        loop = _main_event_loop
+        if loop is None or loop.is_closed():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+        if loop and not loop.is_closed():
+            _running_tasks[universe_id] = loop.create_task(_universe_step_loop(universe_id))
+        else:
+            logger.error("Impossible de démarrer la simulation continue '%s': aucune boucle asyncio disponible", universe_id)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _main_event_loop
+    _main_event_loop = asyncio.get_running_loop()
     # Démarrage automatique H24 de l'univers principal dès le lancement du serveur
     logger.info("Démarrage du service Ouroboros API - Lancement de la simulation H24 pour 'main'...")
     _start_universe_loop("main", speed=1.0)
@@ -179,7 +193,7 @@ def create_universe(req: CreateUniverseRequest) -> dict[str, Any]:
 
 
 @app.get("/universes/{universe_id}")
-def get_universe(universe_id: str) -> dict[str, Any]:
+async def get_universe(universe_id: str) -> dict[str, Any]:
     u = _get_universe(universe_id)
     info = u.info()
     task = _running_tasks.get(universe_id)
@@ -189,7 +203,7 @@ def get_universe(universe_id: str) -> dict[str, Any]:
 
 
 @app.post("/universes/{universe_id}/play")
-def play_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
+async def play_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
     u = _get_universe(universe_id)
     _start_universe_loop(universe_id, speed)
     return {
@@ -202,7 +216,7 @@ def play_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
 
 
 @app.post("/universes/{universe_id}/pause")
-def pause_universe(universe_id: str) -> dict[str, Any]:
+async def pause_universe(universe_id: str) -> dict[str, Any]:
     u = _get_universe(universe_id)
     task = _running_tasks.pop(universe_id, None)
     if task and not task.done():
@@ -217,7 +231,7 @@ def pause_universe(universe_id: str) -> dict[str, Any]:
 
 
 @app.post("/universes/{universe_id}/speed")
-def speed_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
+async def speed_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
     u = _get_universe(universe_id)
     _running_speeds[universe_id] = speed
     task = _running_tasks.get(universe_id)
@@ -231,7 +245,7 @@ def speed_universe(universe_id: str, speed: float = 1.0) -> dict[str, Any]:
 
 
 @app.get("/universes/{universe_id}/status")
-def status_universe(universe_id: str) -> dict[str, Any]:
+async def status_universe(universe_id: str) -> dict[str, Any]:
     u = _get_universe(universe_id)
     task = _running_tasks.get(universe_id)
     is_running = task is not None and not task.done()
@@ -245,7 +259,7 @@ def status_universe(universe_id: str) -> dict[str, Any]:
 
 
 @app.post("/universes/{universe_id}/step")
-def step_universe(universe_id: str, req: StepRequest) -> dict[str, Any]:
+async def step_universe(universe_id: str, req: StepRequest) -> dict[str, Any]:
     u = _get_universe(universe_id)
     events = u.step(req.days)
     store.save(u)
@@ -258,7 +272,7 @@ def step_universe(universe_id: str, req: StepRequest) -> dict[str, Any]:
 
 
 @app.post("/universes/{universe_id}/reset")
-def reset_universe(universe_id: str) -> dict[str, Any]:
+async def reset_universe(universe_id: str) -> dict[str, Any]:
     u_old = _get_universe(universe_id)
     task = _running_tasks.pop(universe_id, None)
     if task and not task.done():

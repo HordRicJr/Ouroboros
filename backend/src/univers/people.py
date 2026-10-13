@@ -22,12 +22,12 @@ _END = ["an", "ar", "en", "ir", "on", "us", "a", "el", "ik", "or"]
 class CultureRules:
     """Règles familiales d'une culture (étendues par le module Société plus tard)."""
     name: str = "ancestrale"
-    marriage_min_age: int = 16
-    max_age_gap: int = 15
-    kin_taboo_degree: int = 2        # 0 = aucun interdit ; 1 = parents/fratrie ; 2 = + cousins/oncles
+    marriage_min_age: int = 15
+    max_age_gap: int = 25
+    kin_taboo_degree: int = 1        # 0 = aucun interdit ; 1 = parents/fratrie directe ; 2 = + cousins/oncles
     monogamy: bool = True
-    fertility_norm: float = 1.0      # multiplicateur de natalité
-    min_birth_spacing_years: float = 1.5
+    fertility_norm: float = 1.2      # multiplicateur naturel de natalité pionnière
+    min_birth_spacing_years: float = 1.0
 
 
 @dataclass
@@ -200,21 +200,74 @@ class People:
                 p.spouse_ids = [s for s in p.spouse_ids if self.persons[s].alive]
 
         alive = [p for p in alive if p.alive]
-        # naissances
+        by_cell: dict[tuple, list[Person]] = {}
         for p in alive:
-            if p.sex != "F" or not p.spouse_ids or n_alive >= self.max_followed:
+            by_cell.setdefault(p.cell, []).append(p)
+
+        # Mariages et unions spontanées au sein de la communauté
+        single = [p for p in alive if p.alive and not p.spouse_ids]
+        if single:
+            for group in by_cell.values():
+                males = [p for p in group if p.sex == "M" and not p.spouse_ids]
+                females = [p for p in group if p.sex == "F" and not p.spouse_ids]
+                for m in males:
+                    if m.spouse_ids:
+                        continue
+                    rules = self.cultures.get(m.culture, CultureRules())
+                    m_age = self.age_years(m, tick)
+                    if m_age < rules.marriage_min_age:
+                        continue
+                    options = [
+                        f for f in females
+                        if not f.spouse_ids
+                        and self.age_years(f, tick) >= rules.marriage_min_age
+                        and abs(self.age_years(f, tick) - m_age) <= rules.max_age_gap
+                        and not self.are_kin(m.id, f.id, rules.kin_taboo_degree)
+                    ]
+                    if not options and len(group) < 10:
+                        options = [
+                            f for f in females
+                            if not f.spouse_ids
+                            and self.age_years(f, tick) >= rules.marriage_min_age
+                            and not self.are_kin(m.id, f.id, degree=1)
+                        ]
+                    if options and g.random() < 0.10:
+                        f = options[int(g.integers(0, len(options)))]
+                        m.spouse_ids, f.spouse_ids = [f.id], [m.id]
+                        events.append(Event(tick, "marriage", {"husband_id": m.id, "wife_id": f.id,
+                                                               "husband": m.name, "wife": f.name}))
+
+        # Naissances émergentes (organiques, fondées sur la biologie, l'abondance de nourriture et le clan)
+        for p in alive:
+            if p.sex != "F" or n_alive >= self.max_followed:
                 continue
             rules = self.cultures.get(p.culture, CultureRules())
             age = self.age_years(p, tick)
-            if not (16 <= age <= 45):
+            if not (15 <= age <= 46):
                 continue
             if p.last_birth_tick is not None and (tick - p.last_birth_tick) / 365.0 < rules.min_birth_spacing_years:
                 continue
-            fa = self.persons[p.spouse_ids[0]]
+
+            # Père : époux ou partenaire d'union libre du campement
+            fa = None
+            if p.spouse_ids and self.persons[p.spouse_ids[0]].alive:
+                fa = self.persons[p.spouse_ids[0]]
+            else:
+                c_males = [m for m in by_cell.get(p.cell, [])
+                           if m.sex == "M" and m.alive and self.age_years(m, tick) >= 15
+                           and not self.are_kin(p.id, m.id, degree=1)]
+                if c_males:
+                    fa = c_males[int(g.integers(0, len(c_males)))]
+
+            if not fa:
+                continue
+
             y, x = p.cell
-            food = float(eco.feff[p.species_id, y, x])
+            food = float(eco.feff[p.species_id, y, x]) if p.species_id < len(eco.feff) else 1.0
             gm = phenotype(p.genome_array())
-            annual = 0.45 * (0.5 + gm[I_FERT]) * rules.fertility_norm * food
+            gf = phenotype(fa.genome_array())
+            fert = (0.5 + gm[I_FERT]) * 0.7 + (0.5 + gf[I_FERT]) * 0.3
+            annual = 0.50 * fert * rules.fertility_norm * max(0.2, min(1.5, food))
             if g.random() < 1 - np.exp(-annual / 365.0):
                 child_genome = make_child(p.genome_array(), fa.genome_array(), g, mutation_rate)
                 sex = "F" if g.random() < 0.5 else "M"
@@ -223,30 +276,6 @@ class People:
                 n_alive += 1
                 events.append(Event(tick, "birth", {"person_id": c.id, "name": c.name, "mother_id": p.id,
                                                     "father_id": fa.id, "sex": sex}))
-        # mariages
-        single = [p for p in alive if p.alive and not p.spouse_ids]
-        if single:
-            by_cell: dict[tuple, list[Person]] = {}
-            for p in single:
-                by_cell.setdefault(p.cell, []).append(p)
-            for cell, group in by_cell.items():
-                males = [p for p in group if p.sex == "M"]
-                females = [p for p in group if p.sex == "F"]
-                for m in males:
-                    if m.spouse_ids:
-                        continue
-                    rules = self.cultures.get(m.culture, CultureRules())
-                    if self.age_years(m, tick) < rules.marriage_min_age or g.random() > 0.01:
-                        continue
-                    options = [f for f in females if not f.spouse_ids
-                               and self.age_years(f, tick) >= rules.marriage_min_age
-                               and abs(self.age_years(f, tick) - self.age_years(m, tick)) <= rules.max_age_gap
-                               and not self.are_kin(m.id, f.id, rules.kin_taboo_degree)]
-                    if options:
-                        f = options[int(g.integers(0, len(options)))]
-                        m.spouse_ids, f.spouse_ids = [f.id], [m.id]
-                        events.append(Event(tick, "marriage", {"husband_id": m.id, "wife_id": f.id,
-                                                               "husband": m.name, "wife": f.name}))
         return events
 
     # ------------------------------------------------------------ sérialisation
