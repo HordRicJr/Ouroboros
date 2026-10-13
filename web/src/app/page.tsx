@@ -82,11 +82,28 @@ const TITLES: Record<Tab, { title: string; sub: string }> = {
   research: { title: "Recherche & Émergence (PIMMUR)", sub: "Métriques scientifiques, inégalités Gini, entropie, branches et journal d'appels" },
 };
 
-const API = process.env.NEXT_PUBLIC_API_URL || "https://13-49-23-84.sslip.io";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
+async function apiFetch(path: string, init?: RequestInit, timeoutMs = 4000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const url = API_BASE ? `${API_BASE}${path}` : path;
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${API}${path}`);
+    const res = await apiFetch(path, { cache: "no-store" }, 3000);
     return res.ok ? ((await res.json()) as T) : null;
   } catch {
     return null;
@@ -211,9 +228,9 @@ export default function Home() {
     setIsPlaying(nextState);
     try {
       if (nextState) {
-        await fetch(`${API}/universes/main/play?speed=${speed}`, { method: "POST" });
+        await apiFetch(`/universes/main/play?speed=${speed}`, { method: "POST" });
       } else {
-        await fetch(`${API}/universes/main/pause`, { method: "POST" });
+        await apiFetch(`/universes/main/pause`, { method: "POST" });
       }
     } catch (e) {
       console.warn("Erreur togglePlay serveur:", e);
@@ -224,7 +241,7 @@ export default function Home() {
   const changeSpeed = async (newSpeed: number) => {
     setSpeed(newSpeed);
     try {
-      await fetch(`${API}/universes/main/speed?speed=${newSpeed}`, { method: "POST" });
+      await apiFetch(`/universes/main/speed?speed=${newSpeed}`, { method: "POST" });
     } catch (e) {
       console.warn("Erreur changeSpeed:", e);
     }
@@ -234,7 +251,7 @@ export default function Home() {
   const step = async (days: number) => {
     setStepping(days);
     try {
-      await fetch(`${API}/universes/main/step`, {
+      await apiFetch(`/universes/main/step`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ days }),
@@ -251,7 +268,7 @@ export default function Home() {
     if (!confirm("Voulez-vous réinitialiser l'univers à l'instant originel (Jour 0) ? La simulation H24 reprendra à zéro.")) return;
     setResetting(true);
     try {
-      await fetch(`${API}/universes/main/reset`, { method: "POST" });
+      await apiFetch(`/universes/main/reset`, { method: "POST" });
       setSelected(null);
       setChats({});
       await refreshFull();
@@ -272,11 +289,11 @@ export default function Home() {
     setAsking(true);
     let answer = "Le notable reste silencieux pour le moment.";
     try {
-      const res = await fetch(`${API}/universes/main/notables/${pid}/ask`, {
+      const res = await apiFetch(`/universes/main/notables/${pid}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: q, mock: false }),
-      });
+      }, 15000);
       if (res.ok) {
         const data = await res.json();
         answer = data.response || answer;
@@ -303,7 +320,7 @@ export default function Home() {
     setForkSuccess(null);
     try {
       const childName = forkName.trim() || `branch_an_${Math.abs(universe?.year ?? 0)}_${Date.now().toString().slice(-4)}`;
-      const res = await fetch(`${API}/universes/main/fork`, {
+      const res = await apiFetch(`/universes/main/fork`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -324,6 +341,25 @@ export default function Home() {
       console.error("Erreur fork:", e);
     } finally {
       setForking(false);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      const res = await apiFetch("/universes/main/metrics/export?format=csv");
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `ouroboros_metrics_an_${Math.abs(universe?.year ?? 0)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error("Erreur téléchargement CSV:", err);
     }
   };
 
@@ -363,11 +399,11 @@ export default function Home() {
           <div className="status-row">
             <span className={`dot ${online === null ? "" : online ? "online" : "offline"}`} />
             <strong style={{ color: "var(--text)" }}>
-              {online === null ? "Connexion…" : online ? (isPlaying ? "Moteur H24 actif" : "Moteur en pause") : "Serveur inaccessible"}
+              {online === null ? "Connexion…" : online ? (isPlaying ? "Moteur H24 actif" : "Moteur en pause") : "Moteur inaccessible"}
             </strong>
           </div>
-          <div style={{ wordBreak: "break-all", fontSize: "0.72rem", color: "var(--text-dim)" }}>
-            {API.replace("https://", "")} · {online ? (isPlaying ? "Tourne 24/7" : "Suspendu") : "Hors ligne"}
+          <div style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+            {online ? (isPlaying ? "Simulation continue en cours" : "Simulation en pause") : "En attente du moteur de simulation…"}
           </div>
           {budget && (
             <>
@@ -1089,17 +1125,16 @@ export default function Home() {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <a
-                    href={`${API}/universes/main/metrics/export?format=csv`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={handleExportCsv}
                     className="btn chip"
-                    style={{ textDecoration: "none", color: "#e8eaf2", display: "inline-flex", alignItems: "center", gap: 6 }}
+                    style={{ textDecoration: "none", color: "#e8eaf2", display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}
                     title="Télécharger l'intégralité des métriques saisonnières au format CSV pour analyse R / Python / Pandas"
                   >
                     <Download size={14} style={{ color: "var(--accent)" }} />
                     Export CSV
-                  </a>
+                  </button>
 
                   <form onSubmit={handleFork} style={{ display: "flex", gap: 6 }}>
                     <input
