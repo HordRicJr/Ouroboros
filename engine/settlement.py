@@ -93,8 +93,8 @@ class SettlementManager:
             pop = clan.population_size
             tech_state = technology.get_or_create(clan.id)
 
-            # Évolution vers Tier 2 (Hameau) : pop >= 10 et poterie
-            if s.tier == 1 and pop >= 10:
+            # Évolution vers Tier 2 (Hameau) : pop >= 6
+            if s.tier == 1 and pop >= 6:
                 s.tier = 2
                 s.buildings.append("Grenier sur pilotis")
                 events.append(Event(tick, "settlement_upgraded", {
@@ -106,8 +106,8 @@ class SettlementManager:
                     "year": year,
                 }))
 
-            # Évolution vers Tier 3 (Village Palissadé) : pop >= 18
-            elif s.tier == 2 and pop >= 18 and g.random() < 0.35:
+            # Évolution vers Tier 3 (Village Palissadé) : pop >= 12
+            elif s.tier == 2 and pop >= 12 and g.random() < 0.35:
                 s.tier = 3
                 s.defense_bonus = 0.35
                 s.buildings.append("Palissade de pieux")
@@ -121,8 +121,8 @@ class SettlementManager:
                     "year": year,
                 }))
 
-            # Évolution vers Tier 4 (Bourg Fortifié) : pop >= 30 et agriculture naissante
-            elif s.tier == 3 and pop >= 30 and tech_state.has("early_horticulture"):
+            # Évolution vers Tier 4 (Bourg Fortifié) : pop >= 20
+            elif s.tier == 3 and pop >= 20 and tech_state.has("early_horticulture"):
                 s.tier = 4
                 s.defense_bonus = 0.65
                 s.buildings.append("Tour de guet en rondins")

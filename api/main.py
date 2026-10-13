@@ -127,10 +127,10 @@ if store.exists("main"):
         logger.info("Univers 'main' chargé depuis la persistance (Tick: %d, Date: %s)", _default_u.tick, _default_u.date)
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
         logger.warning("Erreur chargement 'main': %s - réinitialisation", exc)
-        _default_u = Universe("main", 42)
+        _default_u = Universe("main", 42, start_year=-4004)
         store.save(_default_u)
 else:
-    _default_u = Universe("main", 42)
+    _default_u = Universe("main", 42, start_year=-4004)
     store.save(_default_u)
 
 universes["main"] = _default_u
@@ -140,7 +140,7 @@ multiverse.register(_default_u)
 class CreateUniverseRequest(BaseModel):
     id: str = Field(..., json_schema_extra={"example": "eden-01"})
     seed: int = Field(default=42, json_schema_extra={"example": 42})
-    start_year: int = Field(default=0, json_schema_extra={"example": 0})
+    start_year: int = Field(default=-4004, json_schema_extra={"example": -4004})
     parent_id: str | None = Field(default=None, json_schema_extra={"example": None})
     year_length_days: int = Field(default=365)
     gravity: float = Field(default=9.81)
@@ -277,14 +277,15 @@ async def reset_universe(universe_id: str) -> dict[str, Any]:
     task = _running_tasks.pop(universe_id, None)
     if task and not task.done():
         task.cancel()
-    # Réinitialisation à neuf avec la même graine (même monde et lois)
-    u_new = Universe(u_old.id, u_old.seed, consts=u_old.consts, start_year=u_old.start_year, parent_id=u_old.parent_id)
+    # Réinitialisation à neuf avec la même graine (commencement biblique en 4004 av. J.-C.)
+    target_start_year = -4004 if (universe_id == "main" or u_old.start_year == 0) else u_old.start_year
+    u_new = Universe(u_old.id, u_old.seed, consts=u_old.consts, start_year=target_start_year, parent_id=u_old.parent_id)
     universes[universe_id] = u_new
     store.save(u_new)
     # Relancer immédiatement la simulation H24 au jour 0
     _start_universe_loop(universe_id, _running_speeds.get(universe_id, 1.0))
     return {
-        "message": f"Univers '{universe_id}' réinitialisé au commencement.",
+        "message": f"Univers '{universe_id}' réinitialisé au commencement (4004 av. J.-C., Adan & Eva).",
         "info": u_new.info(),
     }
 

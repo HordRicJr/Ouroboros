@@ -328,7 +328,11 @@ export default function Home() {
             </span>
             <span className="chip" style={{ borderColor: "rgba(91, 184, 245, 0.4)" }} title={universe?.date || ""}>
               <CalendarDays size={15} style={{ color: "#5bb8f5" }} />
-              <strong>An {universe?.year ?? 0}</strong>
+              <strong>
+                {universe && universe.year < 0
+                  ? `${Math.abs(universe.year)} av. J.-C.`
+                  : `An ${universe?.year ?? 0}`}
+              </strong>
               <span style={{ color: "var(--text-muted)" }}>·</span>
               <span>Jour {universe?.day ?? (universe ? universe.day_of_year + 1 : 1)} / {universe?.year_length ?? 365}</span>
             </span>
@@ -425,14 +429,28 @@ export default function Home() {
           {tab === "overview" && (
             <>
               <div className="stat-grid">
-                <StatCard icon={Calendar} label="Date & Calendrier" value={`An ${universe?.year ?? 0}`} tone="#5bb8f5" />
+                <StatCard
+                  icon={Users}
+                  label="Population mondiale"
+                  value={`${universe?.population ?? 2} âmes`}
+                  tone="#4fd1a5"
+                />
+                <StatCard
+                  icon={Calendar}
+                  label="Date & Chronologie"
+                  value={
+                    universe && universe.year < 0
+                      ? `${Math.abs(universe.year)} av. J.-C.`
+                      : `An ${universe?.year ?? 0}`
+                  }
+                  tone="#5bb8f5"
+                />
                 <StatCard icon={Sun} label="Saison en cours" value={universe?.season ?? "Printemps"} tone="#f2b84b" />
-                <StatCard icon={Tent} label="Clans" value={universe?.clans_count ?? 0} tone="#4fd1a5" />
-                <StatCard icon={Users} label="Habitants notables" value={universe?.notables_count ?? 0} tone="#8b7cf6" />
-                <StatCard icon={Castle} label="Établissements" value={universe?.settlements_count ?? 0} tone="#38bdf8" />
+                <StatCard icon={Tent} label="Clans & Tribus" value={universe?.clans_count ?? 1} tone="#38bdf8" />
+                <StatCard icon={Crown} label="Notables vivants" value={`${universe?.notables_count ?? 2} actifs`} tone="#8b7cf6" />
+                <StatCard icon={Castle} label="Établissements" value={universe?.settlements_count ?? 1} tone="#f08a5d" />
                 <StatCard icon={Route} label="Routes commerciales" value={universe?.trade_routes_count ?? 0} tone="#fbbf24" />
-                <StatCard icon={Crown} label="Royaumes" value={universe?.kingdoms_count ?? 0} tone="#ec7fb6" />
-                <StatCard icon={Landmark} label="Merveilles" value={universe?.wonders_count ?? 0} tone="#f08a5d" />
+                <StatCard icon={Landmark} label="Royaumes & Merveilles" value={`${universe?.kingdoms_count ?? 0} / ${universe?.wonders_count ?? 0}`} tone="#ec7fb6" />
               </div>
 
               {/* Barre de progression de l'année */}
@@ -440,7 +458,7 @@ export default function Home() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "0.85rem", flexWrap: "wrap", gap: "8px" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
                     <CalendarDays size={16} style={{ color: "#5bb8f5" }} />
-                    Progression de l&apos;année {universe?.year ?? 0}
+                    Progression de l&apos;année {universe && universe.year < 0 ? `${Math.abs(universe.year)} av. J.-C.` : `An ${universe?.year ?? 0}`}
                     {isPlaying ? (
                       <span className="live-pill" title="Le moteur tourne en continu 24/7 sur le serveur">
                         <span className="pulse-dot" /> Serveur H24 actif ({speed}x)

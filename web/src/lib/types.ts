@@ -29,6 +29,11 @@ export interface UniverseInfo {
   civilization_phase: string;
   ouroboros_cycle: number;
   notables_count: number;
+  total_notables_count?: number;
+  population?: number;
+  total_born?: number;
+  macro_population?: number;
+  start_year?: number;
   ai_budget: {
     max_total_calls: number;
     total_calls: number;

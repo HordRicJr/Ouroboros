@@ -101,6 +101,12 @@ def test_api_advanced_endpoints():
     assert "peace_treaties" in wars_data
 
     # 3. Spawn child universe
+    from api.main import store, universes
+    universes.pop("child-test-01", None)
+    if hasattr(store, "_conn"):
+        with store._conn() as conn:
+            conn.execute("DELETE FROM universes WHERE id='child-test-01'")
+            conn.execute("DELETE FROM snapshots WHERE universe_id='child-test-01'")
     res_spawn = client.post("/universes/main/spawn", json={
         "child_id": "child-test-01",
         "amplitude": 0.05

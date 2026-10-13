@@ -142,11 +142,20 @@ class Society:
             camp_members.setdefault(p.cell, []).append(p)
 
         for cell, members in sorted(camp_members.items(), key=lambda item: item[0]):
-            totem = str(g.choice(_TOTEMS))
-            epithet = str(g.choice(_TERRITORY_EPITHETS))
-            clan_name = f"Clan du {totem} {epithet}"
-            cosmo = str(g.choice(_COSMOGONIES))
-            taboo = [str(g.choice(_TABOOS))]
+            if soc.next_clan_id == 1:
+                # Premier clan originel de la Genèse en 4004 av. J.-C.
+                totem = "Arbre de Vie"
+                clan_name = "Lignée d'Adan & Eva"
+                cosmo = "Créés de la poussière de la terre et animés du souffle de vie originel."
+                taboo = ["Respecter le souffle de vie sacré et garder l'Alliance originelle."]
+                settlement_name = "Havre-Éden"
+            else:
+                totem = str(g.choice(_TOTEMS))
+                epithet = str(g.choice(_TERRITORY_EPITHETS))
+                clan_name = f"Clan du {totem} {epithet}"
+                cosmo = str(g.choice(_COSMOGONIES))
+                taboo = [str(g.choice(_TABOOS))]
+                settlement_name = f"Havre-{totem.split()[0]}"
 
             # Territoire immédiat : la cellule du camp et les voisines terrestres directes
             y, x = cell
@@ -168,7 +177,7 @@ class Society:
                 taboos=taboo,
                 culture_name="ancestrale",
                 language_id=1,
-                settlement_name=f"Havre-{totem.split()[0]}",
+                settlement_name=settlement_name,
                 founded_year=0,
             )
             soc.clans[clan.id] = clan
@@ -259,8 +268,8 @@ class Society:
         events: list[Event] = []
         for clan in list(self.clans.values()):
             members = [people.persons[pid] for pid in clan.member_ids if pid in people.persons and people.persons[pid].alive]
-            # Seuil de surpopulation clanique : plus de 24 membres sur un campement
-            if len(members) >= 24:
+            # Seuil de scission : dès 8 membres, un groupe pionnier peut fonder un nouveau campement
+            if len(members) >= 8:
                 # Chercher une terre habitable adjacente libre de tout campement
                 y, x = clan.settlement_cell
                 candidate_cells = []
@@ -273,10 +282,10 @@ class Society:
 
                 if candidate_cells:
                     new_cell = candidate_cells[int(g.integers(0, len(candidate_cells)))]
-                    # La moitié des jeunes adultes partent fonder le nouveau clan
-                    migrants = [p for p in members if 16 <= people.age_years(p, tick) <= 35]
-                    if len(migrants) >= 4:
-                        split_count = len(migrants) // 2
+                    # Les pionniers (adultes non chefs) partent fonder la nouvelle branche
+                    migrants = [p for p in members if p.id not in (clan.leader_id, clan.matriarch_id) and people.age_years(p, tick) >= 15]
+                    if len(migrants) >= 2:
+                        split_count = max(2, len(migrants) // 2)
                         leaving_members = migrants[:split_count]
                         leaving_ids = {p.id for p in leaving_members}
 

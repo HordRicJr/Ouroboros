@@ -39,7 +39,7 @@ ECO_DAYS = 7  # l'écosystème de masse avance par pas de 7 jours
 
 class Universe:
     def __init__(self, universe_id: str, seed: int, consts: UniverseConstants | None = None,
-                 start_year: int = 0, parent_id: str | None = None,
+                 start_year: int = -4004, parent_id: str | None = None,
                  world: WorldMap | None = None, tick: int = 0,
                  eco: Ecosystem | None = None, people: People | None = None,
                  society: Society | None = None,
@@ -195,6 +195,16 @@ class Universe:
             elif ev.type == "clan_leadership":
                 new_leader_id = ev.payload.get("new_leader_id")
                 clan_name = ev.payload.get("clan_name")
+                if new_leader_id and new_leader_id not in self.notables and new_leader_id in self.people.persons:
+                    p = self.people.persons[new_leader_id]
+                    p.notable = True
+                    clan = self.society.get_person_clan(new_leader_id)
+                    title = f"Patriarche ({clan_name})" if p.sex == "M" else f"Matriarche ({clan_name})"
+                    prof = NotableProfile(p.id, title=title)
+                    if clan:
+                        prof.beliefs.append(f"Totem sacré : {clan.totem}")
+                        prof.beliefs.append(f"Mythe fondateur : {clan.cosmogony}")
+                    self.notables[new_leader_id] = prof
                 if new_leader_id in self.notables:
                     self.notables[new_leader_id].add_memory(self.tick, year, f"Je suis devenu le chef de mon clan ({clan_name})", impact=0.9)
             elif ev.type == "cultural_drift":
@@ -208,6 +218,18 @@ class Universe:
             elif ev.type == "clan_split":
                 parent_clan_id = ev.payload.get("parent_clan_id")
                 new_clan_name = ev.payload.get("new_clan_name")
+                new_clan_id = ev.payload.get("new_clan_id")
+                new_clan = self.society.clans.get(new_clan_id)
+                if new_clan:
+                    for lid in (new_clan.leader_id, new_clan.matriarch_id):
+                        if lid and lid not in self.notables and lid in self.people.persons:
+                            lp = self.people.persons[lid]
+                            lp.notable = True
+                            ltitle = f"Fondateur ({new_clan_name})" if lp.sex == "M" else f"Mère fondatrice ({new_clan_name})"
+                            nprof = NotableProfile(lp.id, title=ltitle)
+                            nprof.beliefs.append(f"Totem sacré : {new_clan.totem}")
+                            nprof.beliefs.append(f"Mythe fondateur : {new_clan.cosmogony}")
+                            self.notables[lp.id] = nprof
                 parent_clan = self.society.clans.get(parent_clan_id)
                 if parent_clan:
                     for mid in parent_clan.member_ids:
@@ -415,25 +437,46 @@ class Universe:
         d = self.date
         season_idx = int(d.season_phase * 4) % 4
         season_name = SEASONS_N[season_idx].capitalize()
-        return {"id": self.id, "seed": self.seed, "tick": self.tick, "date": str(d), "year": d.year,
-                "day_of_year": d.day_of_year, "day": d.day_of_year + 1, "year_length": d.year_length,
-                "season": season_name, "season_phase": round(d.season_phase, 3),
-                "parent_id": self.parent_id, "constants": self.consts.to_dict(),
-                "clans_count": len(self.society.clans),
-                "languages_count": len(self.languages.languages),
-                "technologies_known": sum(len(s.unlocked_techs) for s in self.technology.clan_states.values()),
-                "active_wars_count": len(self.warfare.active_wars()),
-                "chronicles_count": len(self.chronicles.entries),
-                "active_disasters_count": len(self.disasters.active_disasters()),
-                "sacred_sites_count": len(self.religion.sacred_sites),
-                "settlements_count": len(self.settlements.settlements),
-                "legal_codes_count": len(self.justice.legal_codes),
-                "trials_count": len(self.justice.trials),
-                "trade_routes_count": len(self.trade.routes),
-                "expeditions_count": len(self.trade.expeditions),
-                "currencies_count": len(self.economy.currencies),
-                "kingdoms_count": len(self.realms.kingdoms),
-                "wonders_count": len(self.erudition.wonders),
-                "civilization_phase": self.ouroboros.cycle.current_phase,
-                "ouroboros_cycle": self.ouroboros.cycle.cycle_number,
-                "notables_count": len(self.notables), "ai_budget": self.ai_budget.to_dict()}
+        alive_people = self.people.alive_persons()
+        living_notables = [p for p in self.notables.values() if self.people.persons.get(p.person_id) and self.people.persons[p.person_id].alive]
+        h_species = [i for i, s in enumerate(self.eco.species) if s.kind == "human"]
+        macro_pop = round(float(self.eco.N[h_species[0]].sum()), 1) if h_species else float(len(alive_people))
+
+        return {
+            "id": self.id,
+            "seed": self.seed,
+            "tick": self.tick,
+            "date": str(d),
+            "year": d.year,
+            "start_year": self.start_year,
+            "day_of_year": d.day_of_year,
+            "day": d.day_of_year + 1,
+            "year_length": d.year_length,
+            "season": season_name,
+            "season_phase": round(d.season_phase, 3),
+            "parent_id": self.parent_id,
+            "constants": self.consts.to_dict(),
+            "population": len(alive_people),
+            "total_born": len(self.people.persons),
+            "macro_population": macro_pop,
+            "clans_count": len(self.society.clans),
+            "languages_count": len(self.languages.languages),
+            "technologies_known": sum(len(s.unlocked_techs) for s in self.technology.clan_states.values()),
+            "active_wars_count": len(self.warfare.active_wars()),
+            "chronicles_count": len(self.chronicles.entries),
+            "active_disasters_count": len(self.disasters.active_disasters()),
+            "sacred_sites_count": len(self.religion.sacred_sites),
+            "settlements_count": len(self.settlements.settlements),
+            "legal_codes_count": len(self.justice.legal_codes),
+            "trials_count": len(self.justice.trials),
+            "trade_routes_count": len(self.trade.routes),
+            "expeditions_count": len(self.trade.expeditions),
+            "currencies_count": len(self.economy.currencies),
+            "kingdoms_count": len(self.realms.kingdoms),
+            "wonders_count": len(self.erudition.wonders),
+            "civilization_phase": self.ouroboros.cycle.current_phase,
+            "ouroboros_cycle": self.ouroboros.cycle.cycle_number,
+            "notables_count": len(living_notables),
+            "total_notables_count": len(self.notables),
+            "ai_budget": self.ai_budget.to_dict(),
+        }

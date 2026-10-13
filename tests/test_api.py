@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 import pytest
 
-from univers.api import app, universes, store
+from api.main import app, universes, store
 
 
 @pytest.fixture(autouse=True)
