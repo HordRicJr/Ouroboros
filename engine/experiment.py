@@ -7,10 +7,9 @@ Conforme à la Priorité 4 et aux principes PIMMUR :
 """
 from __future__ import annotations
 
-import copy
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from engine.engine import Universe

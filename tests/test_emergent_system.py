@@ -1,9 +1,8 @@
 """Tests complets pour l'architecture émergente, sociométrique et cognitive d'Ouroboros."""
-import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app, universes
-from engine.agent_cognition import AgentCognition, PersonalityProfile
+from engine.agent_cognition import AgentCognition
 from engine.engine import Universe
 from engine.experiment import fork_universe_state
 from engine.llm import MockLLMClient

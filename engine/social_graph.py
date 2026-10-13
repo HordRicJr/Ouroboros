@@ -11,7 +11,7 @@ Conformément à la Priorité 1 du plan d'émergence :
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -75,8 +75,6 @@ class SocialGraph:
             return {}
 
         raw_scores: dict[int, float] = {}
-        total_pop = len(alive_person_ids)
-
         for pid in alive_person_ids:
             # 1. Déférence entrante (qui vient demander conseil)
             in_sources = self.deference_edges.get(pid, {})

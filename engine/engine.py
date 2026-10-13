@@ -21,7 +21,12 @@ from .experiment import AICallLogger, BranchMetadata
 from .justice import JusticeSystem
 from .language import LanguageRegistry
 from .llm import LLMClient
-from .metrics import SeasonalMetricsSnapshot, SimulationMetricsHistory, calculate_gini, calculate_shannon_entropy
+from .metrics import (
+    SeasonalMetricsSnapshot,
+    SimulationMetricsHistory,
+    calculate_gini,
+    calculate_shannon_entropy,
+)
 from .notable import NotableProfile
 from .ouroboros_cycle import OuroborosCycleManager
 from .people import People
@@ -134,7 +139,7 @@ class Universe:
             title, role = self.social_graph.deduce_emergent_title(
                 p.id, age, cent, bool(p.spouse_ids), len(p.children_ids), clan_name
             )
-            prof = NotableProfile(p.id, title=title, rank_grade=role, influence=int(round(cent)))
+            prof = NotableProfile(p.id, title=title, rank_grade=role, influence=round(cent))
             if clan:
                 prof.beliefs.append(f"Totem sacré du clan : {clan.totem}")
                 prof.beliefs.append(f"Mythe fondateur : {clan.cosmogony}")
@@ -180,7 +185,7 @@ class Universe:
                 )
                 prof.title = title
                 prof.rank_grade = role
-                prof.influence = int(round(cent))
+                prof.influence = round(cent)
 
                 if p.id not in self.agent_cognitions:
                     self.agent_cognitions[p.id] = AgentCognition.create_random(p.id, seed=self.seed + p.id)
