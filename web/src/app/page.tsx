@@ -2,14 +2,19 @@
 
 import {
   Activity,
+  BarChart3,
   BookOpenText,
   Castle,
+  CheckCircle2,
   ChevronsRight,
   Clock3,
   Coins,
   Crown,
+  Download,
   FastForward,
+  FlaskConical,
   Gavel,
+  GitBranch,
   Globe2,
   Landmark,
   Loader2,
@@ -19,6 +24,7 @@ import {
   Pause,
   RefreshCw,
   Route,
+  Scale,
   ScrollText,
   Send,
   Sparkles,
@@ -43,24 +49,29 @@ import { Empty, Panel, StatCard } from "@/components/ui";
 import {
   PHASES,
   PHASE_TONES,
+  type AICallLogEntry,
+  type BranchMetadataInfo,
   type ChatMessage,
   type Chronicle,
   type Deity,
+  type MetricsSummary,
   type Notable,
   type PersonInfo,
+  type SeasonalMetric,
   type Settlement,
   type TradeRoute,
   type UniverseInfo,
   type WorldMapInfo,
 } from "@/lib/types";
 
-type Tab = "overview" | "notables" | "civilization" | "chronicles";
+type Tab = "overview" | "notables" | "civilization" | "chronicles" | "research";
 
 const NAV: { key: Tab; label: string; icon: typeof Globe2 }[] = [
   { key: "overview", label: "Vue d'ensemble", icon: Globe2 },
   { key: "notables", label: "Habitants notables", icon: MessageSquareText },
   { key: "civilization", label: "Civilisation", icon: Landmark },
   { key: "chronicles", label: "Chroniques", icon: ScrollText },
+  { key: "research", label: "Recherche & Émergence", icon: FlaskConical },
 ];
 
 const TITLES: Record<Tab, { title: string; sub: string }> = {
@@ -68,6 +79,7 @@ const TITLES: Record<Tab, { title: string; sub: string }> = {
   notables: { title: "Habitants notables", sub: "Dialogue en immersion totale avec les figures de l'univers" },
   civilization: { title: "Civilisation", sub: "Institutions, commerce, croyances et pouvoir" },
   chronicles: { title: "Chroniques", sub: "Mémoire épique consignée par les bardes" },
+  research: { title: "Recherche & Émergence (PIMMUR)", sub: "Métriques scientifiques, inégalités Gini, entropie, branches et journal d'appels" },
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://13-49-23-84.sslip.io";
@@ -100,10 +112,18 @@ export default function Home() {
   const [resetting, setResetting] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [speed, setSpeed] = useState<number>(1);
+  const [metricsSummary, setMetricsSummary] = useState<MetricsSummary | null>(null);
+  const [latestMetric, setLatestMetric] = useState<SeasonalMetric | null>(null);
+  const [metricsHistory, setMetricsHistory] = useState<SeasonalMetric[]>([]);
+  const [branchMeta, setBranchMeta] = useState<BranchMetadataInfo | null>(null);
+  const [aiLogs, setAiLogs] = useState<AICallLogEntry[]>([]);
+  const [forkName, setForkName] = useState("");
+  const [forking, setForking] = useState(false);
+  const [forkSuccess, setForkSuccess] = useState<string | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const refreshFull = useCallback(async () => {
-    const [u, w, n, s, t, c, p, peo] = await Promise.all([
+    const [u, w, n, s, t, c, p, peo, met, logs] = await Promise.all([
       getJson<UniverseInfo>("/universes/main"),
       getJson<WorldMapInfo>("/universes/main/map"),
       getJson<Notable[]>("/universes/main/notables"),
@@ -112,6 +132,8 @@ export default function Home() {
       getJson<Chronicle[]>("/universes/main/chronicles"),
       getJson<{ deities: Deity[] }>("/universes/main/pantheon"),
       getJson<PersonInfo[]>("/universes/main/people"),
+      getJson<{ summary: MetricsSummary; latest: SeasonalMetric; history: SeasonalMetric[]; branch: BranchMetadataInfo }>("/universes/main/metrics"),
+      getJson<{ total_calls: number; logs: AICallLogEntry[] }>("/universes/main/ai_logs"),
     ]);
     setOnline(u !== null);
     if (u) {
@@ -133,6 +155,15 @@ export default function Home() {
     if (c) setChronicles(c);
     if (p) setDeities(p.deities ?? []);
     if (peo) setPeople(peo);
+    if (met) {
+      setMetricsSummary(met.summary);
+      setLatestMetric(met.latest);
+      setMetricsHistory(met.history ?? []);
+      setBranchMeta(met.branch ?? null);
+    }
+    if (logs) {
+      setAiLogs(logs.logs ?? []);
+    }
   }, []);
 
   const refreshTick = useCallback(async () => {
@@ -263,6 +294,37 @@ export default function Home() {
     setChats((c) => ({ ...c, [pid]: [...(c[pid] ?? []), { sender: "them", author: selected.name, text: answer }] }));
     setAsking(false);
     refreshFull();
+  };
+
+  const handleFork = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (forking) return;
+    setForking(true);
+    setForkSuccess(null);
+    try {
+      const childName = forkName.trim() || `branch_an_${Math.abs(universe?.year ?? 0)}_${Date.now().toString().slice(-4)}`;
+      const res = await fetch(`${API}/universes/main/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          child_id: childName,
+          description: "Branche contrefactuelle observée depuis l'interface",
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setForkSuccess(`Branche créée avec succès : ${data.child_id}`);
+        setForkName("");
+        await refreshFull();
+      } else {
+        const err = await res.json();
+        alert(`Erreur de branchement: ${err.detail || "inconnue"}`);
+      }
+    } catch (e) {
+      console.error("Erreur fork:", e);
+    } finally {
+      setForking(false);
+    }
   };
 
   const phase = universe?.civilization_phase ?? "Aube";
@@ -690,10 +752,10 @@ export default function Home() {
                 <div style={{ fontSize: "1.8rem" }}>🔮</div>
                 <div style={{ flex: 1, minWidth: 260 }}>
                   <strong style={{ color: "#c4b5fd", fontSize: "0.95rem" }}>
-                    Quel est l&apos;intérêt de dialoguer avec les notables ?
+                    Quel est l&apos;impact d&apos;un dialogue avec un habitant ?
                   </strong>
                   <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: 4, lineHeight: 1.45 }}>
-                    Vous incarnez le <strong>Voyageur Céleste</strong>. Discuter avec un chef ou une matriarche permet de <strong>sonder son vécu réel</strong> (ses enfants, son foyer, ses doutes), d&apos;<strong>inspirer ses croyances</strong> (+2 influence morale) et d&apos;<strong>inscrire vos révélations dans les Chroniques</strong> de l&apos;univers !
+                    Vos paroles sont perçues comme un songe ou une voix mystérieuse. L&apos;habitant <strong>délibère de façon autonome</strong> selon ses traits de personnalité (Big Five) pour accueillir, douter ou rejeter vos suggestions, sans qu&apos;aucun tabou ne soit imposé arbitrairement. Toute discussion marque aussi la branche comme <strong>intervention observatrice</strong>.
                   </div>
                 </div>
               </div>
@@ -935,6 +997,315 @@ export default function Home() {
                 </div>
               )}
             </Panel>
+          )}
+
+          {/* ===== Research & Emergence (PIMMUR) ===== */}
+          {tab === "research" && (
+            <>
+              {/* Header de Branche & Contrôle Expérimental */}
+              <div
+                style={{
+                  background: "linear-gradient(135deg, rgba(30, 27, 75, 0.45), rgba(17, 24, 39, 0.6))",
+                  border: "1px solid rgba(139, 92, 246, 0.25)",
+                  borderRadius: "var(--radius)",
+                  padding: "16px 20px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      background: "rgba(139, 92, 246, 0.2)",
+                      display: "grid",
+                      placeItems: "center",
+                      color: "#c4b5fd",
+                    }}
+                  >
+                    <GitBranch size={22} />
+                  </div>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <strong style={{ fontSize: "1rem", color: "#e0e7ff" }}>
+                        Branche : {universe?.id ?? "main"}
+                      </strong>
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          padding: "2px 8px",
+                          borderRadius: "12px",
+                          background:
+                            branchMeta?.branch_type === "observer_intervention"
+                              ? "rgba(239, 107, 115, 0.2)"
+                              : "rgba(79, 209, 165, 0.2)",
+                          color:
+                            branchMeta?.branch_type === "observer_intervention"
+                              ? "#ef6b73"
+                              : "#4fd1a5",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {branchMeta?.branch_type === "observer_intervention"
+                          ? "● Intervention observatrice"
+                          : "● Baseline pure (Référence)"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 2 }}>
+                      {branchMeta?.description || "Évolution naturelle sans forçage scénaristique."}
+                      {branchMeta?.parent_universe_id && (
+                        <span> · Dérivé de <strong>{branchMeta.parent_universe_id}</strong> à l&apos;An {branchMeta.fork_year}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <a
+                    href={`${API}/universes/main/metrics/export?format=csv`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn chip"
+                    style={{ textDecoration: "none", color: "#e8eaf2", display: "inline-flex", alignItems: "center", gap: 6 }}
+                    title="Télécharger l'intégralité des métriques saisonnières au format CSV pour analyse R / Python / Pandas"
+                  >
+                    <Download size={14} style={{ color: "var(--accent)" }} />
+                    Export CSV
+                  </a>
+
+                  <form onSubmit={handleFork} style={{ display: "flex", gap: 6 }}>
+                    <input
+                      className="input"
+                      style={{ padding: "6px 12px", fontSize: "0.8rem", width: 180 }}
+                      placeholder="Nom de la branche..."
+                      value={forkName}
+                      onChange={(e) => setForkName(e.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      style={{ padding: "6px 12px", fontSize: "0.8rem" }}
+                      disabled={forking}
+                    >
+                      {forking ? <Loader2 size={13} className="spin" /> : <GitBranch size={13} />}
+                      Forker
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {forkSuccess && (
+                <div
+                  style={{
+                    padding: "10px 16px",
+                    borderRadius: "var(--radius-sm)",
+                    background: "rgba(79, 209, 165, 0.15)",
+                    border: "1px solid rgba(79, 209, 165, 0.3)",
+                    color: "var(--success)",
+                    fontSize: "0.82rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <CheckCircle2 size={16} />
+                  <span>{forkSuccess}</span>
+                </div>
+              )}
+
+              {/* Les 4 Piliers Scientifiques */}
+              <div className="stat-grid">
+                <StatCard
+                  icon={Scale}
+                  label="Inégalité d'Influence (Gini)"
+                  value={latestMetric ? latestMetric.gini_influence.toFixed(3) : "0.000"}
+                  sub={`Moyenne : ${(metricsSummary?.averages.gini_influence ?? 0).toFixed(3)} · Réseau de déférence`}
+                  tone="#c4b5fd"
+                />
+                <StatCard
+                  icon={Coins}
+                  label="Inégalité de Ressources (Gini)"
+                  value={latestMetric ? latestMetric.gini_resources.toFixed(3) : "0.000"}
+                  sub={`Moyenne : ${(metricsSummary?.averages.gini_resources ?? 0).toFixed(3)} · Stocks alimentaires`}
+                  tone="#4fd1a5"
+                />
+                <StatCard
+                  icon={Activity}
+                  label="Entropie Comportementale"
+                  value={latestMetric ? latestMetric.behavioral_entropy.toFixed(3) : "1.000"}
+                  sub={`Shannon H : ${(metricsSummary?.averages.behavioral_entropy ?? 0).toFixed(3)} (1.0 = diversité max)`}
+                  tone="#38bdf8"
+                />
+                <StatCard
+                  icon={Users}
+                  label="Densité du Réseau Social"
+                  value={latestMetric ? latestMetric.network_density.toFixed(3) : "0.000"}
+                  sub={`${latestMetric?.active_social_ties ?? 0} liens de conseil & médiation`}
+                  tone="#f2b84b"
+                />
+              </div>
+
+              {/* Conformité aux Principes PIMMUR */}
+              <Panel icon={CheckCircle2} title="Validité Scientifique – Principes PIMMUR (Zhou et al.)">
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                    gap: 12,
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    <div style={{ fontWeight: 600, color: "#818cf8", marginBottom: 4 }}>1. Profils Psychologiques (P)</div>
+                    <div style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      Big Five (OCEAN) avec transmission héréditaire partielle et inventaire de compétences individuelles.
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    <div style={{ fontWeight: 600, color: "#818cf8", marginBottom: 4 }}>2. Perception Locale Stricte (I)</div>
+                    <div style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      Aucun agrégat macro-statistique ou inventaire mondial injecté dans le contexte perceptuel.
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    <div style={{ fontWeight: 600, color: "#818cf8", marginBottom: 4 }}>3. Flux de Mémoire Épisodique (M)</div>
+                    <div style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      Décroissance exponentielle (oubli e^-λΔt), importance cognitive et synthèses réflexives périodiques.
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    <div style={{ fontWeight: 600, color: "#818cf8", marginBottom: 4 }}>4. Contrôle Minimal (M)</div>
+                    <div style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      Prompts purement situationnels. Aucune consigne impérative de statut ou de comportement imposé.
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    <div style={{ fontWeight: 600, color: "#818cf8", marginBottom: 4 }}>5. Non-Conscience de l&apos;Étude (U)</div>
+                    <div style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      Les habitants s&apos;éprouvent comme des êtres vivants de leur époque, sans métadonnées de simulation.
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    <div style={{ fontWeight: 600, color: "#818cf8", marginBottom: 4 }}>6. Calibration Démographique (R)</div>
+                    <div style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      Démographie calibrée de chasseurs-cueilleurs : mortalité infantile 30-40%, longévité naturelle ~60 ans.
+                    </div>
+                  </div>
+                </div>
+              </Panel>
+
+              {/* Table des Métriques Historiques */}
+              <Panel icon={BarChart3} title="Séries Temporelles Saisonnières" badge={`${metricsHistory.length} instantanés`}>
+                {metricsHistory.length === 0 ? (
+                  <Empty icon={BarChart3} text="Aucun instantané saisonnier consigné pour le moment. Laissez la simulation progresser." />
+                ) : (
+                  <div style={{ overflowX: "auto", maxHeight: 380 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem", textAlign: "left" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                          <th style={{ padding: "8px 12px" }}>Année / Saison</th>
+                          <th style={{ padding: "8px 12px" }}>Population</th>
+                          <th style={{ padding: "8px 12px" }}>Naissances / Décès</th>
+                          <th style={{ padding: "8px 12px" }}>Gini Influence</th>
+                          <th style={{ padding: "8px 12px" }}>Gini Ressources</th>
+                          <th style={{ padding: "8px 12px" }}>Entropie (Shannon)</th>
+                          <th style={{ padding: "8px 12px" }}>Déférence Max</th>
+                          <th style={{ padding: "8px 12px" }}>Coutumes & Tabous</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...metricsHistory].slice(-15).reverse().map((m, idx) => (
+                          <tr
+                            key={idx}
+                            style={{
+                              borderBottom: "1px solid rgba(255,255,255,0.04)",
+                              background: idx % 2 === 0 ? "rgba(255,255,255,0.01)" : "transparent",
+                            }}
+                          >
+                            <td style={{ padding: "8px 12px", fontWeight: 600 }}>
+                              {m.year < 0 ? `${Math.abs(m.year)} av. J.-C.` : `An ${m.year}`} · {m.season}
+                            </td>
+                            <td style={{ padding: "8px 12px" }}>{m.population}</td>
+                            <td style={{ padding: "8px 12px", color: "var(--text-muted)" }}>
+                              <span style={{ color: "var(--success)" }}>+{m.births_this_year}</span> / <span style={{ color: "var(--danger)" }}>-{m.deaths_this_year}</span>
+                            </td>
+                            <td style={{ padding: "8px 12px", color: "#c4b5fd" }}>{m.gini_influence.toFixed(3)}</td>
+                            <td style={{ padding: "8px 12px", color: "#4fd1a5" }}>{m.gini_resources.toFixed(3)}</td>
+                            <td style={{ padding: "8px 12px", color: "#38bdf8" }}>{m.behavioral_entropy.toFixed(3)}</td>
+                            <td style={{ padding: "8px 12px", color: "#f2b84b" }}>{m.max_deference.toFixed(1)}</td>
+                            <td style={{ padding: "8px 12px" }}>
+                              {m.active_customs_count} coutumes · {m.active_taboos_count} tabous
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+
+              {/* Journal d'Appels IA Auditable */}
+              <Panel icon={FlaskConical} title="Journal d'Appels IA Auditable (Traçabilité)" badge={`${aiLogs.length} appels récents`}>
+                {aiLogs.length === 0 ? (
+                  <Empty icon={FlaskConical} text="Aucun appel IA récent consigné dans le journal auditable." />
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 420, overflowY: "auto" }}>
+                    {aiLogs.slice(0, 10).map((log) => (
+                      <div
+                        key={log.record_id}
+                        style={{
+                          background: "rgba(0,0,0,0.25)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--radius-sm)",
+                          padding: "10px 14px",
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span
+                              style={{
+                                fontSize: "0.7rem",
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                                background: "rgba(139, 92, 246, 0.2)",
+                                color: "#c4b5fd",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {log.kind}
+                            </span>
+                            <strong>Agent #{log.agent_id ?? "Système"}</strong>
+                            <span style={{ color: "var(--text-dim)" }}>
+                              (An {log.year < 0 ? `${Math.abs(log.year)} av. J.-C.` : log.year})
+                            </span>
+                          </div>
+                          <div style={{ color: "var(--text-muted)", fontSize: "0.72rem" }}>
+                            {log.model_name} · {log.duration_ms} ms · Temp {log.temperature}
+                          </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 4 }}>
+                          <div style={{ background: "rgba(0,0,0,0.2)", padding: 8, borderRadius: 6, border: "1px solid rgba(255,255,255,0.03)" }}>
+                            <div style={{ color: "var(--text-dim)", fontSize: "0.68rem", textTransform: "uppercase", marginBottom: 2 }}>Prompt Minimal</div>
+                            <div style={{ maxHeight: 70, overflowY: "auto", whiteSpace: "pre-wrap", color: "var(--text-muted)" }}>{log.prompt}</div>
+                          </div>
+                          <div style={{ background: "rgba(0,0,0,0.2)", padding: 8, borderRadius: 6, border: "1px solid rgba(255,255,255,0.03)" }}>
+                            <div style={{ color: "var(--text-dim)", fontSize: "0.68rem", textTransform: "uppercase", marginBottom: 2 }}>Décision / Réponse IA</div>
+                            <div style={{ maxHeight: 70, overflowY: "auto", whiteSpace: "pre-wrap", color: "#e2e8f0" }}>{log.response}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Panel>
+            </>
           )}
         </main>
       </div>

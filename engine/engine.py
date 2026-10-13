@@ -6,6 +6,7 @@ import json
 
 import numpy as np
 
+from .agent_cognition import AgentCognition
 from .budget import AIBudgetManager
 from .chronicles import ChronicleKeeper
 from .climate import Climate, Weather
@@ -16,9 +17,11 @@ from .ecology import Ecosystem
 from .economy import EconomyManager
 from .erudition import EruditionManager
 from .events import Event
+from .experiment import AICallLogger, BranchMetadata
 from .justice import JusticeSystem
 from .language import LanguageRegistry
 from .llm import LLMClient
+from .metrics import SeasonalMetricsSnapshot, SimulationMetricsHistory, calculate_gini, calculate_shannon_entropy
 from .notable import NotableProfile
 from .ouroboros_cycle import OuroborosCycleManager
 from .people import People
@@ -26,6 +29,7 @@ from .realms import RealmManager
 from .religion import ReligionRegistry
 from .rng import Rng
 from .settlement import SettlementManager
+from .social_graph import SocialGraph
 from .society import Society
 from .species import Species
 from .technology import TechnologyRegistry
@@ -57,7 +61,12 @@ class Universe:
                  erudition: EruditionManager | None = None,
                  ouroboros: OuroborosCycleManager | None = None,
                  notables: dict[int, NotableProfile] | None = None,
-                 ai_budget: AIBudgetManager | None = None):
+                 ai_budget: AIBudgetManager | None = None,
+                 social_graph: SocialGraph | None = None,
+                 agent_cognitions: dict[int, AgentCognition] | None = None,
+                 metrics_history: SimulationMetricsHistory | None = None,
+                 ai_logger: AICallLogger | None = None,
+                 branch_metadata: BranchMetadata | None = None):
         self.id = universe_id
         self.seed = seed
         self.consts = consts or UniverseConstants()
@@ -85,136 +94,96 @@ class Universe:
         self.realms = realms or RealmManager()
         self.erudition = erudition or EruditionManager()
         self.ouroboros = ouroboros or OuroborosCycleManager()
+
+        # Architecture cognitive émergente PIMMUR & Sociométrie
+        self.social_graph = social_graph or SocialGraph()
+        self.agent_cognitions = agent_cognitions if agent_cognitions is not None else self._init_agent_cognitions()
+        self.metrics_history = metrics_history or SimulationMetricsHistory()
+        self.ai_logger = ai_logger or AICallLogger()
+        self.branch_metadata = branch_metadata or BranchMetadata(universe_id=universe_id)
+
         self.notables = notables if notables is not None else self._init_notables()
         self.ai_budget = ai_budget or AIBudgetManager()
         self.last_weather: Weather | None = None
         self.pending_events: list[Event] = []
 
+    def _init_agent_cognitions(self) -> dict[int, AgentCognition]:
+        cogs: dict[int, AgentCognition] = {}
+        for p in self.people.persons.values():
+            cog = AgentCognition.create_random(p.id, seed=self.seed + p.id)
+            biome = self.world.biome_name(*p.cell)
+            cog.known_facts.add(f"Vit dans les contrées de {biome}")
+            if p.spouse_ids:
+                sp_names = [self.people.persons[sid].name for sid in p.spouse_ids if sid in self.people.persons]
+                if sp_names:
+                    cog.known_facts.add(f"Lié à {', '.join(sp_names)}")
+            cogs[p.id] = cog
+        return cogs
+
     def _init_notables(self) -> dict[int, NotableProfile]:
         notables: dict[int, NotableProfile] = {}
-        for p in self.people.persons.values():
-            if p.notable:
-                clan = self.society.get_person_clan(p.id)
-                clan_name = f" ({clan.name})" if clan else ""
-                if p.id == 1 and p.mother_id is None:
-                    title = "Patriarche Fondateur (Lignée d'Adan & Eva)"
-                    grade = "Fondateur"
-                    inf = 100
-                elif p.id == 2 and p.mother_id is None:
-                    title = "Matriarche Fondatrice (Lignée d'Adan & Eva)"
-                    grade = "Fondatrice"
-                    inf = 100
-                else:
-                    title = f"Chef de clan{clan_name}" if p.sex == "M" else f"Matriarche{clan_name}"
-                    grade = "Chef de Clan" if p.sex == "M" else "Matriarche"
-                    inf = 70
-                prof = NotableProfile(p.id, title=title, rank_grade=grade, influence=inf)
-                if clan:
-                    prof.beliefs.append(f"Totem sacré du clan : {clan.totem}")
-                    prof.beliefs.append(f"Mythe fondateur : {clan.cosmogony}")
-                notables[p.id] = prof
+        alive = self.people.alive_persons()
+        alive_ids = [p.id for p in alive]
+        centralities = self.social_graph.calculate_deference_centrality(alive_ids)
+
+        for p in alive:
+            clan = self.society.get_person_clan(p.id)
+            clan_name = clan.name if clan else None
+            age = self.people.age_years(p, self.tick)
+            cent = centralities.get(p.id, 20.0)
+            title, role = self.social_graph.deduce_emergent_title(
+                p.id, age, cent, bool(p.spouse_ids), len(p.children_ids), clan_name
+            )
+            prof = NotableProfile(p.id, title=title, rank_grade=role, influence=int(round(cent)))
+            if clan:
+                prof.beliefs.append(f"Totem sacré du clan : {clan.totem}")
+                prof.beliefs.append(f"Mythe fondateur : {clan.cosmogony}")
+            notables[p.id] = prof
+            p.notable = True
         return notables
 
     def refresh_notables_hierarchy(self):
-        """Met à jour dynamiquement la hiérarchie sociale et les grades des notables selon l'évolution du monde."""
-        for p in self.people.alive_persons():
-            # 1. Rôles fondateurs (Genèse originelle)
-            if p.id == 1 and p.mother_id is None:
-                p.notable = True
-                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                prof.title = "Patriarche Fondateur (Lignée d'Adan & Eva)"
-                prof.rank_grade = "Fondateur"
-                prof.influence = 100
-                continue
-            elif p.id == 2 and p.mother_id is None:
-                p.notable = True
-                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                prof.title = "Matriarche Fondatrice (Lignée d'Adan & Eva)"
-                prof.rank_grade = "Fondatrice"
-                prof.influence = 100
-                continue
+        """Met à jour dynamiquement la hiérarchie sociale et les statuts des notables de manière purement émergente.
 
-            # 2. Rôles royaux (M23 - Royaumes & Souverains)
-            is_ruler = False
-            for k in self.realms.kingdoms.values():
-                if k.ruler_id == p.id:
-                    p.notable = True
-                    prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                    prof.title = f"Haut-Roi du {k.name}" if p.sex == "M" else f"Reine Souveraine du {k.name}"
-                    prof.rank_grade = "Souverain"
-                    prof.influence = 95
-                    is_ruler = True
-                    break
-            if is_ruler:
-                continue
+        Conforme à la Priorité 1 du plan d'émergence :
+        - Aucun grade fixe (ex: Patriarche 100, Souverain 95).
+        - Le rang est déduit de la sociométrie réelle (centralité de déférence, médiations, citations mémorielles).
+        - Les qualificatifs sociaux sont dérivés des faits observés.
+        """
+        alive = self.people.alive_persons()
+        if not alive:
+            return
 
+        alive_ids = [p.id for p in alive]
+        centralities = self.social_graph.calculate_deference_centrality(alive_ids)
+
+        for p in alive:
+            age = self.people.age_years(p, self.tick)
+            cent = centralities.get(p.id, 20.0)
             clan = self.society.get_person_clan(p.id)
-            clan_name = f" ({clan.name})" if clan else ""
+            clan_name = clan.name if clan else None
 
-            # 3. Chefs de clan temporels
-            if clan and p.id == clan.leader_id:
+            # Un individu est notable si ses pairs s'en remettent à lui (haute centralité),
+            # s'il est aîné respecté, chef reconnu par le clan, ou au début quand la communauté est réduite.
+            is_emergent_notable = (
+                cent >= 35.0
+                or len(alive) <= 5
+                or (clan and p.id in (clan.leader_id, clan.matriarch_id))
+                or age >= 40.0
+            )
+
+            if is_emergent_notable or p.notable:
                 p.notable = True
                 prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                prof.title = f"Chef de clan{clan_name}"
-                prof.rank_grade = "Chef de Clan"
-                prof.influence = 80
-                continue
+                title, role = self.social_graph.deduce_emergent_title(
+                    p.id, age, cent, bool(p.spouse_ids), len(p.children_ids), clan_name
+                )
+                prof.title = title
+                prof.rank_grade = role
+                prof.influence = int(round(cent))
 
-            # 4. Matriarches de clan
-            if clan and p.id == clan.matriarch_id:
-                p.notable = True
-                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                prof.title = f"Matriarche du clan{clan_name}"
-                prof.rank_grade = "Matriarche"
-                prof.influence = 75
-                continue
-
-            # 5. Rôles spirituels : Gardien de site sacré (M18 - Religion)
-            has_sacred_role = False
-            if clan:
-                for site in self.religion.sacred_sites.values():
-                    if site.clan_id == clan.id and self.people.age_years(p, self.tick) >= 18:
-                        p.notable = True
-                        prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                        prof.title = f"Grand Chamane du {site.name}" if p.sex == "M" else f"Grande Prêtresse du {site.name}"
-                        prof.rank_grade = "Grand Chamane"
-                        prof.influence = 65
-                        has_sacred_role = True
-                        break
-            if has_sacred_role:
-                continue
-
-            # 6. Rôles judiciaires : Juge coutumier (M20 - Justice)
-            if clan and clan.id in self.justice.legal_codes and self.people.age_years(p, self.tick) >= 22:
-                p.notable = True
-                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                code = self.justice.legal_codes[clan.id]
-                prof.title = f"Juge Coutumier ({code.law_name})"
-                prof.rank_grade = "Juge Coutumier"
-                prof.influence = 60
-                continue
-
-            # 7. Rôles militaires : Capitaine de Guerre (M14 - Warfare)
-            if (
-                clan
-                and any(w.active and clan.id in (w.attacker_clan_id, w.defender_clan_id) for w in self.warfare.wars.values())
-                and p.sex == "M"
-                and self.people.age_years(p, self.tick) >= 18
-            ):
-                p.notable = True
-                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                prof.title = f"Capitaine de Guerre{clan_name}"
-                prof.rank_grade = "Capitaine de Guerre"
-                prof.influence = 55
-                continue
-
-            # 8. Doyen du Conseil des Anciens (âge >= 40 ans dans la communauté)
-            if self.people.age_years(p, self.tick) >= 40 and clan and p.notable:
-                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
-                prof.title = f"Doyen du Conseil des Anciens{clan_name}"
-                prof.rank_grade = "Doyen du Conseil"
-                prof.influence = 50
-                continue
+                if p.id not in self.agent_cognitions:
+                    self.agent_cognitions[p.id] = AgentCognition.create_random(p.id, seed=self.seed + p.id)
 
     @property
     def date(self) -> Date:
@@ -233,7 +202,9 @@ class Universe:
                                                          **self.last_weather.summary(self.world.is_land)}))
             q = d.year_length // 4
             if d.day_of_year % q == 0 and d.day_of_year // q < 4:
-                out.append(Event(self.tick, "season_start", {"season": SEASONS_N[d.day_of_year // q], "year": d.year}))
+                season_str = SEASONS_N[d.day_of_year // q]
+                out.append(Event(self.tick, "season_start", {"season": season_str, "year": d.year}))
+                self._record_seasonal_metrics(season_str, d.year)
             if eco_tick:
                 out += self.eco.step(self.tick, self.last_weather, self.world, self.consts, self.rng,
                                      self.climate, ECO_DAYS)
@@ -277,6 +248,66 @@ class Universe:
         self.pending_events.extend(out)
         return out
 
+    def _record_seasonal_metrics(self, season_name: str, year: int):
+        """Enregistre un instantané scientifique des dynamiques émergentes à chaque saison."""
+        alive = self.people.alive_persons()
+        pop = len(alive)
+        if pop == 0:
+            return
+
+        alive_ids = [p.id for p in alive]
+        centralities = self.social_graph.calculate_deference_centrality(alive_ids)
+
+        inf_values = [centralities.get(pid, 0.0) for pid in alive_ids]
+        gini_inf = calculate_gini(inf_values)
+
+        food_per_person = []
+        for p in alive:
+            y, x = p.cell
+            f = float(self.eco.feff[p.species_id, y, x]) if p.species_id < len(self.eco.feff) else 1.0
+            food_per_person.append(f)
+        gini_res = calculate_gini(food_per_person)
+
+        activity_counts = {"cueillette": 0, "chasse": 0, "conseil": 0, "soin": 0}
+        for p in alive:
+            c = centralities.get(p.id, 20.0)
+            if c >= 45.0:
+                activity_counts["conseil"] += 1
+            elif p.sex == "M":
+                activity_counts["chasse"] += 1
+            else:
+                activity_counts["cueillette"] += 1
+        behav_entropy = calculate_shannon_entropy(activity_counts)
+
+        n_edges = sum(len(sources) for sources in self.social_graph.deference_edges.values())
+        max_possible_edges = max(1, pop * (pop - 1))
+        density = round(min(1.0, n_edges / max_possible_edges), 4)
+
+        recent_deaths = [p for p in self.people.persons.values() if p.death_tick and p.death_tick > self.tick - 365]
+        infant_deaths = [p for p in recent_deaths if self.people.age_years(p, p.death_tick) < 5.0]
+        infant_mort_rate = round(len(infant_deaths) / max(1, len(recent_deaths)), 3) if recent_deaths else 0.05
+
+        snap = SeasonalMetricsSnapshot(
+            tick=self.tick,
+            year=year,
+            season=season_name,
+            population=pop,
+            births_this_year=len([p for p in self.people.persons.values() if p.birth_tick > self.tick - 365]),
+            deaths_this_year=len(recent_deaths),
+            infant_mortality_rate=infant_mort_rate,
+            gini_resources=gini_res,
+            gini_influence=gini_inf,
+            behavioral_entropy=behav_entropy,
+            network_density=density,
+            avg_deference=round(sum(inf_values) / max(1, len(inf_values)), 1),
+            max_deference=round(max(inf_values) if inf_values else 0.0, 1),
+            active_social_ties=n_edges,
+            active_taboos_count=sum(len(c.taboos) for c in self.society.clans.values()),
+            active_customs_count=len(self.justice.legal_codes),
+            beliefs_count=sum(len(prof.beliefs) for prof in self.notables.values()),
+        )
+        self.metrics_history.record_snapshot(snap)
+
     def _update_notables_memory(self, events: list[Event], year: int):
         for ev in events:
             if ev.type == "birth":
@@ -286,6 +317,11 @@ class Universe:
                 for parent in (m_id, f_id):
                     if parent in self.notables:
                         self.notables[parent].add_memory(self.tick, year, f"Naissance de mon enfant {name}", impact=0.8)
+                    if parent in self.agent_cognitions:
+                        self.agent_cognitions[parent].add_memory(self.tick, year, f"Naissance de mon enfant {name}", importance=0.8)
+                if m_id and f_id:
+                    self.social_graph.record_interaction(self.tick, year, m_id, f_id, "mention", 1.0)
+                    self.social_graph.record_interaction(self.tick, year, f_id, m_id, "mention", 1.0)
             elif ev.type == "marriage":
                 hid = ev.payload.get("husband_id")
                 wid = ev.payload.get("wife_id")
@@ -295,6 +331,12 @@ class Universe:
                     self.notables[hid].add_memory(self.tick, year, f"Mon union sacrée avec {wname}", impact=0.7)
                 if wid in self.notables:
                     self.notables[wid].add_memory(self.tick, year, f"Mon union sacrée avec {hname}", impact=0.7)
+                for pid, partner_name in [(hid, wname), (wid, hname)]:
+                    if pid in self.agent_cognitions:
+                        self.agent_cognitions[pid].add_memory(self.tick, year, f"Mon union avec {partner_name}", importance=0.7)
+                if hid and wid:
+                    self.social_graph.record_interaction(self.tick, year, hid, wid, "deference", 1.0)
+                    self.social_graph.record_interaction(self.tick, year, wid, hid, "deference", 1.0)
             elif ev.type == "death":
                 pid = ev.payload.get("person_id")
                 name = ev.payload.get("name")
@@ -304,21 +346,34 @@ class Universe:
                 for not_id, profile in self.notables.items():
                     if not_id != pid and self.people.are_kin(not_id, pid, 1):
                         profile.add_memory(self.tick, year, f"Deuil tragique de {name} ({cause})", impact=0.75)
+                        if not_id in self.agent_cognitions:
+                            self.agent_cognitions[not_id].add_memory(self.tick, year, f"Deuil tragique de {name} ({cause})", importance=0.75)
+                        self.social_graph.record_interaction(self.tick, year, not_id, pid, "mention", 1.0)
             elif ev.type == "clan_leadership":
                 new_leader_id = ev.payload.get("new_leader_id")
                 clan_name = ev.payload.get("clan_name")
+                clan_id = ev.payload.get("clan_id")
                 if new_leader_id and new_leader_id not in self.notables and new_leader_id in self.people.persons:
                     p = self.people.persons[new_leader_id]
                     p.notable = True
                     clan = self.society.get_person_clan(new_leader_id)
-                    title = f"Patriarche ({clan_name})" if p.sex == "M" else f"Matriarche ({clan_name})"
-                    prof = NotableProfile(p.id, title=title)
+                    title, role = self.social_graph.deduce_emergent_title(
+                        p.id, self.people.age_years(p, self.tick), 60.0, bool(p.spouse_ids), len(p.children_ids), clan_name
+                    )
+                    prof = NotableProfile(p.id, title=title, rank_grade=role)
                     if clan:
                         prof.beliefs.append(f"Totem sacré : {clan.totem}")
                         prof.beliefs.append(f"Mythe fondateur : {clan.cosmogony}")
                     self.notables[new_leader_id] = prof
                 if new_leader_id in self.notables:
-                    self.notables[new_leader_id].add_memory(self.tick, year, f"Je suis devenu le chef de mon clan ({clan_name})", impact=0.9)
+                    self.notables[new_leader_id].add_memory(self.tick, year, f"Reconnu comme guide du clan ({clan_name})", impact=0.9)
+                if new_leader_id in self.agent_cognitions:
+                    self.agent_cognitions[new_leader_id].add_memory(self.tick, year, f"Reconnu comme guide du clan ({clan_name})", importance=0.9)
+                clan_obj = self.society.clans.get(clan_id)
+                if clan_obj and new_leader_id:
+                    for mid in clan_obj.member_ids:
+                        if mid != new_leader_id:
+                            self.social_graph.record_interaction(self.tick, year, mid, new_leader_id, "deference", 1.5)
             elif ev.type == "cultural_drift":
                 clan_id = ev.payload.get("clan_id")
                 taboo = ev.payload.get("taboo_adopted")
@@ -327,6 +382,8 @@ class Universe:
                     for mid in clan.member_ids:
                         if mid in self.notables:
                             self.notables[mid].add_memory(self.tick, year, f"Notre clan a adopté un nouvel interdit sacré : « {taboo} »", impact=0.6)
+                        if mid in self.agent_cognitions:
+                            self.agent_cognitions[mid].add_memory(self.tick, year, f"Coutume adoptée : {taboo}", importance=0.6)
             elif ev.type == "clan_split":
                 parent_clan_id = ev.payload.get("parent_clan_id")
                 new_clan_name = ev.payload.get("new_clan_name")
@@ -337,8 +394,10 @@ class Universe:
                         if lid and lid not in self.notables and lid in self.people.persons:
                             lp = self.people.persons[lid]
                             lp.notable = True
-                            ltitle = f"Fondateur ({new_clan_name})" if lp.sex == "M" else f"Mère fondatrice ({new_clan_name})"
-                            nprof = NotableProfile(lp.id, title=ltitle)
+                            ltitle, lrole = self.social_graph.deduce_emergent_title(
+                                lp.id, self.people.age_years(lp, self.tick), 50.0, bool(lp.spouse_ids), len(lp.children_ids), new_clan_name
+                            )
+                            nprof = NotableProfile(lp.id, title=ltitle, rank_grade=lrole)
                             nprof.beliefs.append(f"Totem sacré : {new_clan.totem}")
                             nprof.beliefs.append(f"Mythe fondateur : {new_clan.cosmogony}")
                             self.notables[lp.id] = nprof
@@ -440,10 +499,18 @@ class Universe:
                             self.notables[mid].add_memory(self.tick, year, f"Notre clan a édicté une grande loi coutumière : {lname}", impact=0.8)
             elif ev.type == "trial_held":
                 accused_id = ev.payload.get("accused_id")
+                judge_id = ev.payload.get("judge_id")
                 verdict = ev.payload.get("verdict")
                 punishment = ev.payload.get("punishment")
                 if accused_id in self.notables:
                     self.notables[accused_id].add_memory(self.tick, year, f"J'ai été jugé par les anciens ({verdict}) : {punishment}", impact=0.9)
+                if judge_id and accused_id:
+                    self.social_graph.record_interaction(self.tick, year, accused_id, judge_id, "mediation", 2.0)
+
+        # Déclenchement périodique de la réflexion cognitive (Generative Agents Park et al. 2023)
+        if self.tick % 60 == 0:
+            for cog in self.agent_cognitions.values():
+                cog.trigger_reflection_if_needed(self.tick)
 
     def drain_events(self) -> list[Event]:
         ev, self.pending_events = self.pending_events, []
@@ -452,27 +519,34 @@ class Universe:
     # --- sérialisation (M05) -------------------------------------------------
     def snapshot(self) -> bytes:
         buf = io.BytesIO()
-        meta = {"id": self.id, "seed": self.seed, "consts": self.consts.to_dict(),
-                "start_year": self.start_year, "parent_id": self.parent_id, "tick": self.tick,
-                "species": [s.to_dict() for s in self.eco.species],
-                "human_cells": [list(c) for c in self.eco.human_cells],
-                "people": self.people.to_dict(),
-                "society": self.society.to_dict(),
-                "languages": self.languages.to_dict(),
-                "technology": self.technology.to_dict(),
-                "warfare": self.warfare.to_dict(),
-                "chronicles": self.chronicles.to_dict(),
-                "disasters": self.disasters.to_dict(),
-                "religion": self.religion.to_dict(),
-                "settlements": self.settlements.to_dict(),
-                "justice": self.justice.to_dict(),
-                "trade": self.trade.to_dict(),
-                "economy": self.economy.to_dict(),
-                "realms": self.realms.to_dict(),
-                "erudition": self.erudition.to_dict(),
-                "ouroboros": self.ouroboros.to_dict(),
-                "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
-                "ai_budget": self.ai_budget.to_dict()}
+        meta = {
+            "id": self.id, "seed": self.seed, "consts": self.consts.to_dict(),
+            "start_year": self.start_year, "parent_id": self.parent_id, "tick": self.tick,
+            "species": [s.to_dict() for s in self.eco.species],
+            "human_cells": [list(c) for c in self.eco.human_cells],
+            "people": self.people.to_dict(),
+            "society": self.society.to_dict(),
+            "languages": self.languages.to_dict(),
+            "technology": self.technology.to_dict(),
+            "warfare": self.warfare.to_dict(),
+            "chronicles": self.chronicles.to_dict(),
+            "disasters": self.disasters.to_dict(),
+            "religion": self.religion.to_dict(),
+            "settlements": self.settlements.to_dict(),
+            "justice": self.justice.to_dict(),
+            "trade": self.trade.to_dict(),
+            "economy": self.economy.to_dict(),
+            "realms": self.realms.to_dict(),
+            "erudition": self.erudition.to_dict(),
+            "ouroboros": self.ouroboros.to_dict(),
+            "notables": {str(k): v.to_dict() for k, v in self.notables.items()},
+            "ai_budget": self.ai_budget.to_dict(),
+            "social_graph": self.social_graph.to_dict(),
+            "agent_cognitions": {str(k): v.to_dict() for k, v in self.agent_cognitions.items()},
+            "metrics_history": self.metrics_history.to_dict(),
+            "ai_logger": self.ai_logger.to_dict(),
+            "branch_metadata": self.branch_metadata.to_dict(),
+        }
         np.savez_compressed(buf, _meta=np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
                             eco_N=self.eco.N, eco_T=self.eco.T, eco_feff=self.eco.feff, **self.world.to_arrays())
         return buf.getvalue()
@@ -502,13 +576,21 @@ class Universe:
         ouroboros = OuroborosCycleManager.from_dict(meta["ouroboros"]) if "ouroboros" in meta else None
         notables = {int(k): NotableProfile.from_dict(v) for k, v in meta.get("notables", {}).items()}
         ai_budget = AIBudgetManager.from_dict(meta.get("ai_budget", {})) if "ai_budget" in meta else None
+        social_graph = SocialGraph.from_dict(meta["social_graph"]) if "social_graph" in meta else None
+        agent_cognitions = {int(k): AgentCognition.from_dict(v) for k, v in meta.get("agent_cognitions", {}).items()} if "agent_cognitions" in meta else None
+        metrics_history = SimulationMetricsHistory.from_dict(meta["metrics_history"]) if "metrics_history" in meta else None
+        ai_logger = AICallLogger.from_dict(meta["ai_logger"]) if "ai_logger" in meta else None
+        branch_metadata = BranchMetadata.from_dict(meta["branch_metadata"]) if "branch_metadata" in meta else None
+
         return cls(meta["id"], meta["seed"], UniverseConstants.from_dict(meta["consts"]),
                    meta["start_year"], meta["parent_id"], world, meta["tick"], eco, people, society,
                    languages, technology, warfare, chronicles, disasters, religion, settlements,
-                   justice, trade, economy, realms, erudition, ouroboros, notables, ai_budget)
+                   justice, trade, economy, realms, erudition, ouroboros, notables, ai_budget,
+                   social_graph=social_graph, agent_cognitions=agent_cognitions,
+                   metrics_history=metrics_history, ai_logger=ai_logger, branch_metadata=branch_metadata)
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
-        """Interroge un individu notable sous immersion totale en consommant le budget IA."""
+        """Interroge un individu notable sous immersion totale en respectant l'autonomie cognitive émergente."""
         from .immersion import NotableAgent
         from .llm import MockLLMClient
 
@@ -518,13 +600,16 @@ class Universe:
         self.refresh_notables_hierarchy()
 
         if person_id not in self.notables:
-            # S'il existe dans people mais pas encore notable, on l'élève
             if person_id in self.people.persons:
                 p = self.people.persons[person_id]
                 p.notable = True
                 clan = self.society.get_person_clan(person_id)
-                clan_name = f" ({clan.name})" if clan else ""
-                self.notables[person_id] = NotableProfile(person_id, title=f"Habitant remarquable{clan_name}")
+                clan_name = clan.name if clan else None
+                age = self.people.age_years(p, self.tick)
+                title, role = self.social_graph.deduce_emergent_title(
+                    p.id, age, 20.0, bool(p.spouse_ids), len(p.children_ids), clan_name
+                )
+                self.notables[person_id] = NotableProfile(person_id, title=title, rank_grade=role)
             else:
                 return "Cet individu n'existe pas ou a disparu des mémoires."
 
@@ -534,44 +619,48 @@ class Universe:
         agent = NotableAgent(person_id, prof, client)
         response = agent.ponder(question, self)
 
-        # Enregistrer l'entretien dans la mémoire de l'habitant
-        prof.add_memory(self.tick, self.date.year, f"Entretien avec le Voyageur Céleste : « {question[:50]} »", impact=0.85)
-        prof.influence = min(100, prof.influence + 2)
+        # Toute intervention observatrice marque la branche comme intervention expérimentale
+        self.branch_metadata.branch_type = "observer_intervention"
 
-        # Si le joueur prescrit un tabou ou un interdit sacré
-        q_lower = question.lower()
-        if any(w in q_lower for w in ["tabou", "interdit", "défendu", "ne dois pas", "ne mange pas", "ne touchez pas", "défense de", "ne consomme pas"]):
-            taboo_candidate = "Interdit sacré transmis par le Voyageur"
-            for obj in ["pomme", "pommes", "fruit", "fruits", "viande", "sang", "arbre", "nuit", "feu", "eau", "chasse"]:
-                if obj in q_lower:
-                    taboo_candidate = f"Interdit sacré : ne point consommer ou toucher {obj}"
-                    break
-            clan_obj = self.society.get_person_clan(p.id) or (next(iter(self.society.clans.values())) if self.society.clans else None)
-            if clan_obj:
-                if p.id not in clan_obj.member_ids:
-                    clan_obj.member_ids.append(p.id)
-                if taboo_candidate not in clan_obj.taboos:
-                    clan_obj.taboos.append(taboo_candidate)
-            if taboo_candidate not in prof.beliefs:
-                prof.beliefs.append(taboo_candidate)
-            prof.add_memory(self.tick, self.date.year, f"Le Voyageur céleste nous a ordonné un interdit sacré : « {taboo_candidate} »", impact=0.95)
+        # Traitement cognitif autonome (PIMMUR #4 & #5 : délibération interne, pas d'injection aveugle)
+        cognition = self.agent_cognitions.setdefault(
+            person_id,
+            AgentCognition.create_random(person_id, seed=self.seed + person_id)
+        )
+        decision_info = cognition.decide_on_proposal(question, self.tick)
 
-        # Si le joueur donne un conseil spirituel ou de sagesse, enrichir ses croyances
-        if any(w in q_lower for w in ["paix", "harmonie", "dieu", "étoile", "nature", "amour", "veillez", "ensemble"]):
-            prof.beliefs.append(f"Inspiration reçue du Voyageur : « {question[:45]}... »")
+        # Enregistrement dans les souvenirs (comme une perception externe ou un songe marquant)
+        mem_text = f"Perception d'une présence venue d'au-delà : « {question[:50]} »"
+        prof.add_memory(self.tick, self.date.year, mem_text, impact=0.8)
+        cognition.add_memory(self.tick, self.date.year, mem_text, importance=0.8)
 
-        # Inscrire l'événement dans les chroniques du monde
+        # Si l'habitant a évalué une suggestion ou un interdit
+        if decision_info.get("proposal_detected"):
+            prop_text = decision_info.get("proposal_text", "")
+            decision = decision_info.get("decision")
+            if decision == "accept":
+                belief_text = f"Parole reçue d'une voix mystérieuse : {prop_text}"
+                if belief_text not in prof.beliefs:
+                    prof.beliefs.append(belief_text)
+                cognition.known_facts.add(f"Croît en : {prop_text}")
+            elif decision == "doubt":
+                prof.add_memory(self.tick, self.date.year, f"Doute face à une injonction mystérieuse : « {prop_text} »", impact=0.6)
+            elif decision == "reject":
+                prof.add_memory(self.tick, self.date.year, f"A repoussé une parole étrangère contraire aux coutumes : « {prop_text} »", impact=0.5)
+
+        # Enregistrer l'interaction dans le graphe social
+        self.social_graph.record_interaction(self.tick, self.date.year, person_id, person_id, "mention", 0.5)
+
         clan = self.society.get_person_clan(p.id)
         self.chronicles.record(
             tick=self.tick,
             year=self.date.year,
             category="communion",
             title=f"Communion du Voyageur avec {p.name}",
-            narrative=f"Une présence mystérieuse s'est entretenue avec {p.name} ({prof.title}), marquant à jamais son esprit.",
+            narrative=f"Une présence mystérieuse s'est entretenue avec {p.name} ({prof.title}), marquant son esprit.",
             clans=[clan.name] if clan else [],
         )
 
-        # Enregistrer l'appel dans le gestionnaire de coût
         self.ai_budget.record_call(self.tick, tokens_used=180)
         return response
 
@@ -633,4 +722,7 @@ class Universe:
             "notables_count": len(living_notables),
             "total_notables_count": len(self.notables),
             "ai_budget": self.ai_budget.to_dict(),
+            "branch_metadata": self.branch_metadata.to_dict(),
+            "metrics_summary": self.metrics_history.get_summary(),
+            "ai_calls_count": self.ai_logger.counter,
         }

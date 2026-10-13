@@ -30,9 +30,9 @@ class MemoryItem:
 @dataclass
 class NotableProfile:
     person_id: int
-    title: str = "Habitant"                 # Ex: Patriarche Fondateur, Chef de clan, Grand Chamane, etc.
-    rank_grade: str = "Dirigeant"           # Fondateur, Souverain, Dirigeant, Spirituel, Militaire, Juge, Savant, Doyen
-    influence: int = 20                     # Indice d'influence / autorité morale (1 à 100)
+    title: str = "Habitant"                 # Ex: Aîné respecté, Voix consultée, Pilier de maisonnée
+    rank_grade: str = "Membre"              # Guide, Conseiller, Pilier, Aîné, Membre
+    influence: int = 20                     # Indice de centralité de déférence calculé (1 à 100)
     beliefs: list[str] = field(default_factory=lambda: [
         "Les esprits de la terre veillent sur nos pas",
         "Les saisons sont guidées par le souffle des ancêtres"
@@ -58,7 +58,7 @@ class NotableProfile:
         """Produit le résumé de la mémoire pour injection dans le prompt."""
         lines = []
         if self.title:
-            lines.append(f"Titre honorifique & Grade : {self.title} [Rang : {self.rank_grade}]")
+            lines.append(f"Statut social reconnu : {self.title} [Rôle : {self.rank_grade}]")
         if self.beliefs:
             lines.append("Croyances et vision du monde : " + "; ".join(self.beliefs))
         if self.memories:

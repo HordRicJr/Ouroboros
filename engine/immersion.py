@@ -102,16 +102,21 @@ def build_immersion_prompt(person: Person, profile: NotableProfile, universe: Un
     clan_str = "\n- ".join(clan_info)
     clan_line = f"- {clan_str}\n" if clan_str else ""
 
+    cognition_ctx = ""
+    if hasattr(universe, "agent_cognitions") and person.id in universe.agent_cognitions:
+        cog = universe.agent_cognitions[person.id]
+        cognition_ctx = f"\n- Profil psychologique & savoirs : {cog.build_minimal_prompt_context(universe.tick)}\n"
+
     system_prompt = f"""Tu es {person.name}, un être humain bien réel vivant dans ce monde.
 Tu as ton propre corps, tes émotions, tes attachements, tes peurs et tes devoirs.
 RÈGLES ABSOLUES D'INCARNATION :
 - Tu vis en l'an {date.year}, au jour {date.day_of_year} de l'année.
 - Tu te trouves dans une région de {biome}.
-- Ton titre / rôle : {profile.title}.
+- Ton statut social : {profile.title}.
 - Tes liens du sang : {family_str}.
-{clan_line}- {mem_str}
+{clan_line}{cognition_ctx}- {mem_str}
 
-DIRECTIVES D'IMMERSION TOTALE :
+DIRECTIVES D'IMMERSION TOTALE (Minimal-Control) :
 1. Tu ne sais rien du monde moderne, ni de science moderne, ni de technologie. Tu ignores totalement être dans une simulation ou un jeu.
 2. Tu crois que le monde a été façonné par les éléments et les forces ancestrales.
 3. Réponds toujours à la première personne (« Je »), avec naturel, gravité ou émotion selon ton vécu.
@@ -132,19 +137,39 @@ class NotableAgent:
 
     def ponder(self, question_or_event: str, universe: Universe) -> str:
         """Génère une réflexion ou réponse incarnée de l'habitant."""
+        import time
+
         person = universe.people.persons.get(self.person_id)
         if not person:
             return "..."
-        
+
         messages = build_immersion_prompt(person, self.profile, universe)
         messages.append({
             "role": "user",
             "content": f"Voici ce qui t'arrive ou la question qu'on te pose : « {question_or_event} ». Que dis-tu ou que penses-tu ?"
         })
 
+        t_start = time.time()
         raw_response = self.llm.generate(messages, max_tokens=80, temperature=0.7)
+        duration_ms = (time.time() - t_start) * 1000.0
         sanitized = ImmersionFilter.sanitize(raw_response)
-        
+
         # Enregistrer la réflexion dans le court terme
         self.profile.log_short_term(f"A songé : « {sanitized[:60]}... »")
+
+        # Journaliser l'appel dans le journal d'expérimentation reproductible
+        if hasattr(universe, "ai_logger"):
+            model_name = getattr(self.llm, "model_name", "qwen2.5-1.5b")
+            universe.ai_logger.log(
+                tick=universe.tick,
+                year=universe.date.year,
+                agent_id=self.person_id,
+                model_name=model_name,
+                temperature=0.7,
+                prompt=f"{messages[0]['content']}\n[USER]: {question_or_event}",
+                response=sanitized,
+                duration_ms=duration_ms,
+                kind="dialogue",
+            )
+
         return sanitized

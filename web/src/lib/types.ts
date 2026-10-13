@@ -131,3 +131,60 @@ export const PHASE_TONES: Record<string, string> = {
   Crise: "#ef6b73",
   Renaissance: "#b48cf6",
 };
+
+export interface SeasonalMetric {
+  tick: number;
+  year: number;
+  season: string;
+  population: number;
+  births_this_year: number;
+  deaths_this_year: number;
+  infant_mortality_rate: number;
+  gini_resources: number;
+  gini_influence: number;
+  behavioral_entropy: number;
+  network_density: number;
+  avg_deference: number;
+  max_deference: number;
+  active_social_ties: number;
+  active_taboos_count: number;
+  active_customs_count: number;
+  beliefs_count: number;
+}
+
+export interface MetricsSummary {
+  total_snapshots: number;
+  start_year: number;
+  current_year: number;
+  latest: SeasonalMetric | null;
+  averages: {
+    gini_resources: number;
+    gini_influence: number;
+    behavioral_entropy: number;
+    network_density: number;
+  };
+}
+
+export interface BranchMetadataInfo {
+  universe_id: string;
+  parent_universe_id: string | null;
+  fork_tick: number;
+  fork_year: number;
+  branch_type: string;
+  description: string;
+  created_at: number;
+}
+
+export interface AICallLogEntry {
+  record_id: number;
+  timestamp: number;
+  tick: number;
+  year: number;
+  agent_id: number | null;
+  model_name: string;
+  temperature: number;
+  prompt: string;
+  response: string;
+  duration_ms: number;
+  kind: string;
+}

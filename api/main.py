@@ -5,12 +5,13 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from engine.constants import UniverseConstants
 from engine.engine import Universe
+from engine.experiment import fork_universe_state
 from engine.llm import HuggingFaceClient, MockLLMClient
 from engine.multiverse import MultiverseRegistry
 from engine.persistence import PostgresStore, SQLiteStore, Store
@@ -161,6 +162,11 @@ class StepRequest(BaseModel):
 class AskNotableRequest(BaseModel):
     question: str = Field(..., json_schema_extra={"example": "Comment vont tes proches et que penses-tu des saisons récentes ?"})
     mock: bool = Field(default=True, description="Si True, utilise un mock déterministe pour tester sans token HF")
+
+
+class ForkUniverseRequest(BaseModel):
+    child_id: str = Field(..., description="Identifiant unique du nouvel univers branché")
+    description: str = Field(default="", description="Objectif scientifique ou intervention de la branche")
 
 
 # --- Endpoints de base et santé requis par le serveur ---
@@ -752,6 +758,81 @@ def get_erudition(universe_id: str) -> dict[str, Any]:
 def get_cycle(universe_id: str) -> dict[str, Any]:
     u = _get_universe(universe_id)
     return u.ouroboros.cycle.to_dict()
+
+
+# --- Endpoints de Recherche, Mesures Émergentes & Reproductibilité (PIMMUR) ---
+@app.get("/universes/{universe_id}/metrics")
+def get_metrics(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "summary": u.metrics_history.get_summary(),
+        "latest": u.metrics_history.get_latest(),
+        "history": u.metrics_history.to_dict()[-50:],
+        "social_graph": u.social_graph.to_dict(),
+        "branch": u.branch_metadata.to_dict(),
+    }
+
+
+@app.get("/universes/{universe_id}/metrics/export")
+def export_metrics(universe_id: str, format: str = Query("csv", description="Format d'exportation: csv ou json")) -> Any:
+    u = _get_universe(universe_id)
+    if format.lower() == "csv":
+        csv_data = u.metrics_history.export_csv()
+        return Response(
+            content=csv_data,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=ouroboros_metrics_{universe_id}.csv"},
+        )
+    return u.metrics_history.to_dict()
+
+
+@app.post("/universes/{universe_id}/fork")
+def fork_universe_endpoint(universe_id: str, req: ForkUniverseRequest) -> dict[str, Any]:
+    if req.child_id in universes or store.exists(req.child_id):
+        raise HTTPException(status_code=400, detail=f"L'univers '{req.child_id}' existe déjà.")
+    parent_u = _get_universe(universe_id)
+    child_u = fork_universe_state(parent_u, req.child_id, "observer_intervention", req.description)
+    universes[req.child_id] = child_u
+    multiverse.register(child_u)
+    store.save(child_u)
+    return {
+        "message": f"Branche expérimentale '{req.child_id}' créée à partir de '{universe_id}'",
+        "parent_id": universe_id,
+        "child_id": req.child_id,
+        "info": child_u.info(),
+    }
+
+
+@app.get("/universes/{universe_id}/ai_logs")
+def get_ai_logs(universe_id: str, limit: int = Query(50, ge=1, le=500)) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "total_calls": u.ai_logger.counter,
+        "logs": u.ai_logger.get_recent(limit=limit),
+    }
+
+
+@app.get("/universes/{universe_id}/research_protocol")
+def get_research_protocol(universe_id: str) -> dict[str, Any]:
+    u = _get_universe(universe_id)
+    return {
+        "universe_id": universe_id,
+        "branch_type": u.branch_metadata.branch_type,
+        "parent_universe_id": u.branch_metadata.parent_universe_id,
+        "principles_compliance": {
+            "profile": "Profils différenciés Big Five avec héritabilité génétique partielle",
+            "interaction": "Perception locale stricte sans résumés statistiques dans les prompts",
+            "memory": "Flux de mémoire épisodique avec oubli exponentiel et réflexion périodique",
+            "minimal_control": "Prompts purement descriptifs, aucune consigne prescriptive de comportement",
+            "unawareness": "Aucune mention de la simulation ou d'hypothèses dans les échanges",
+            "realism": "Calibration démographique (mortalité, longévité, fertilité)",
+        },
+        "model_architecture": {
+            "engine": "Ouroboros Pure Emergent Engine",
+            "llm_model": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+            "ai_budget_mode": "Décisionnel sélectif (pas d'appel systématique par tick)",
+        },
+    }
 
 
 def _get_universe(universe_id: str) -> Universe:
