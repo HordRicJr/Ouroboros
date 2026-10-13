@@ -20,6 +20,8 @@ class Store(Protocol):
     def events(self, universe_id: str, since_tick: int = 0, until_tick: int | None = None,
                limit: int = 1000) -> list[Event]: ...
     def list_universes(self) -> list[dict]: ...
+    def delete(self, universe_id: str) -> None: ...
+
 
 
 class MemoryStore:
@@ -50,6 +52,11 @@ class MemoryStore:
 
     def list_universes(self) -> list[dict]:
         return [{"id": k, "snapshots": sorted(v)} for k, v in self._snaps.items()]
+
+    def delete(self, universe_id: str) -> None:
+        self._snaps.pop(universe_id, None)
+        self._events.pop(universe_id, None)
+
 
 
 class SQLiteStore:
@@ -161,6 +168,13 @@ class SQLiteStore:
                 for i, s, p, y in c.execute("SELECT id, seed, parent_id, start_year FROM universes").fetchall()
             ]
 
+    def delete(self, universe_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM snapshots WHERE universe_id=?", (universe_id,))
+            c.execute("DELETE FROM events WHERE universe_id=?", (universe_id,))
+            c.execute("DELETE FROM universes WHERE id=?", (universe_id,))
+
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS universes (
@@ -243,3 +257,8 @@ class PostgresStore:
         with self._conn() as c:
             return [{"id": i, "seed": s, "parent_id": p, "start_year": y}
                     for i, s, p, y in c.execute("SELECT id, seed, parent_id, start_year FROM universes").fetchall()]
+
+    def delete(self, universe_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM universes WHERE id=%s", (universe_id,))
+

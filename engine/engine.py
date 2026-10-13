@@ -96,13 +96,121 @@ class Universe:
             if p.notable:
                 clan = self.society.get_person_clan(p.id)
                 clan_name = f" ({clan.name})" if clan else ""
-                title = f"Chef de clan{clan_name}" if p.sex == "M" else f"Matriarche{clan_name}"
-                prof = NotableProfile(p.id, title=title)
+                if p.id == 1 and p.mother_id is None:
+                    title = "Patriarche Fondateur (Lignée d'Adan & Eva)"
+                    grade = "Fondateur"
+                    inf = 100
+                elif p.id == 2 and p.mother_id is None:
+                    title = "Matriarche Fondatrice (Lignée d'Adan & Eva)"
+                    grade = "Fondatrice"
+                    inf = 100
+                else:
+                    title = f"Chef de clan{clan_name}" if p.sex == "M" else f"Matriarche{clan_name}"
+                    grade = "Chef de Clan" if p.sex == "M" else "Matriarche"
+                    inf = 70
+                prof = NotableProfile(p.id, title=title, rank_grade=grade, influence=inf)
                 if clan:
                     prof.beliefs.append(f"Totem sacré du clan : {clan.totem}")
                     prof.beliefs.append(f"Mythe fondateur : {clan.cosmogony}")
                 notables[p.id] = prof
         return notables
+
+    def refresh_notables_hierarchy(self):
+        """Met à jour dynamiquement la hiérarchie sociale et les grades des notables selon l'évolution du monde."""
+        for p in self.people.alive_persons():
+            # 1. Rôles fondateurs (Genèse originelle)
+            if p.id == 1 and p.mother_id is None:
+                p.notable = True
+                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                prof.title = "Patriarche Fondateur (Lignée d'Adan & Eva)"
+                prof.rank_grade = "Fondateur"
+                prof.influence = 100
+                continue
+            elif p.id == 2 and p.mother_id is None:
+                p.notable = True
+                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                prof.title = "Matriarche Fondatrice (Lignée d'Adan & Eva)"
+                prof.rank_grade = "Fondatrice"
+                prof.influence = 100
+                continue
+
+            # 2. Rôles royaux (M23 - Royaumes & Souverains)
+            is_ruler = False
+            for k in self.realms.kingdoms.values():
+                if k.ruler_id == p.id:
+                    p.notable = True
+                    prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                    prof.title = f"Haut-Roi du {k.name}" if p.sex == "M" else f"Reine Souveraine du {k.name}"
+                    prof.rank_grade = "Souverain"
+                    prof.influence = 95
+                    is_ruler = True
+                    break
+            if is_ruler:
+                continue
+
+            clan = self.society.get_person_clan(p.id)
+            clan_name = f" ({clan.name})" if clan else ""
+
+            # 3. Chefs de clan temporels
+            if clan and p.id == clan.leader_id:
+                p.notable = True
+                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                prof.title = f"Chef de clan{clan_name}"
+                prof.rank_grade = "Chef de Clan"
+                prof.influence = 80
+                continue
+
+            # 4. Matriarches de clan
+            if clan and p.id == clan.matriarch_id:
+                p.notable = True
+                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                prof.title = f"Matriarche du clan{clan_name}"
+                prof.rank_grade = "Matriarche"
+                prof.influence = 75
+                continue
+
+            # 5. Rôles spirituels : Gardien de site sacré (M18 - Religion)
+            has_sacred_role = False
+            if clan:
+                for site in self.religion.sacred_sites.values():
+                    if site.clan_id == clan.id and self.people.age_years(p, self.tick) >= 18:
+                        p.notable = True
+                        prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                        prof.title = f"Grand Chamane du {site.name}" if p.sex == "M" else f"Grande Prêtresse du {site.name}"
+                        prof.rank_grade = "Grand Chamane"
+                        prof.influence = 65
+                        has_sacred_role = True
+                        break
+            if has_sacred_role:
+                continue
+
+            # 6. Rôles judiciaires : Juge coutumier (M20 - Justice)
+            if clan and clan.id in self.justice.legal_codes and self.people.age_years(p, self.tick) >= 22:
+                p.notable = True
+                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                code = self.justice.legal_codes[clan.id]
+                prof.title = f"Juge Coutumier ({code.law_name})"
+                prof.rank_grade = "Juge Coutumier"
+                prof.influence = 60
+                continue
+
+            # 7. Rôles militaires : Capitaine de Guerre (M14 - Warfare)
+            if clan and any(w.active and clan.id in (w.attacker_clan_id, w.defender_clan_id) for w in self.warfare.wars.values()):
+                if p.sex == "M" and self.people.age_years(p, self.tick) >= 18:
+                    p.notable = True
+                    prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                    prof.title = f"Capitaine de Guerre{clan_name}"
+                    prof.rank_grade = "Capitaine de Guerre"
+                    prof.influence = 55
+                    continue
+
+            # 8. Doyen du Conseil des Anciens (âge >= 40 ans dans la communauté)
+            if self.people.age_years(p, self.tick) >= 40 and clan and p.notable:
+                prof = self.notables.setdefault(p.id, NotableProfile(p.id))
+                prof.title = f"Doyen du Conseil des Anciens{clan_name}"
+                prof.rank_grade = "Doyen du Conseil"
+                prof.influence = 50
+                continue
 
     @property
     def date(self) -> Date:
@@ -403,6 +511,8 @@ class Universe:
         if not self.ai_budget.can_call(self.tick):
             return "L'esprit de cet habitant est plongé dans un profond sommeil ou ses devoirs quotidiens l'accaparent."
 
+        self.refresh_notables_hierarchy()
+
         if person_id not in self.notables:
             # S'il existe dans people mais pas encore notable, on l'élève
             if person_id in self.people.persons:
@@ -414,9 +524,31 @@ class Universe:
             else:
                 return "Cet individu n'existe pas ou a disparu des mémoires."
 
+        prof = self.notables[person_id]
+        p = self.people.persons[person_id]
         client = llm_client or MockLLMClient()
-        agent = NotableAgent(person_id, self.notables[person_id], client)
+        agent = NotableAgent(person_id, prof, client)
         response = agent.ponder(question, self)
+
+        # Enregistrer l'entretien dans la mémoire de l'habitant
+        prof.add_memory(self.tick, self.date.year, f"Entretien avec le Voyageur Céleste : « {question[:50]} »", impact=0.85)
+        prof.influence = min(100, prof.influence + 2)
+
+        # Si le joueur donne un conseil spirituel ou de sagesse, enrichir ses croyances
+        if any(w in question.lower() for w in ["paix", "harmonie", "dieu", "étoile", "nature", "amour", "veillez", "ensemble"]):
+            prof.beliefs.append(f"Inspiration reçue du Voyageur : « {question[:45]}... »")
+
+        # Inscrire l'événement dans les chroniques du monde
+        clan = self.society.get_person_clan(p.id)
+        self.chronicles.record(
+            tick=self.tick,
+            year=self.date.year,
+            category="communion",
+            title=f"Communion du Voyageur avec {p.name}",
+            narrative=f"Une présence mystérieuse s'est entretenue avec {p.name} ({prof.title}), marquant à jamais son esprit.",
+            clans=[clan.name] if clan else [],
+        )
+
         # Enregistrer l'appel dans le gestionnaire de coût
         self.ai_budget.record_call(self.tick, tokens_used=180)
         return response

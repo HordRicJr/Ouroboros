@@ -50,6 +50,9 @@ export interface Notable {
   alive: boolean;
   cell: [number, number];
   title: string;
+  rank_grade?: string;
+  influence?: number;
+  beliefs?: string[];
   memories_count: number;
 }
 

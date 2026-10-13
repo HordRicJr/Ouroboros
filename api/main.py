@@ -307,6 +307,7 @@ def get_universe_map(universe_id: str) -> dict[str, Any]:
 @app.get("/universes/{universe_id}/notables")
 def get_notables(universe_id: str) -> list[dict[str, Any]]:
     u = _get_universe(universe_id)
+    u.refresh_notables_hierarchy()
     res = []
     for pid, not_prof in u.notables.items():
         person = u.people.persons.get(pid)
@@ -319,6 +320,9 @@ def get_notables(universe_id: str) -> list[dict[str, Any]]:
                 "alive": person.alive,
                 "cell": person.cell,
                 "title": not_prof.title,
+                "rank_grade": not_prof.rank_grade,
+                "influence": not_prof.influence,
+                "beliefs": list(not_prof.beliefs),
                 "memories_count": len(not_prof.memories),
             })
     return res
@@ -366,11 +370,15 @@ def ask_notable_endpoint(universe_id: str, person_id: int, req: AskNotableReques
     u = _get_universe(universe_id)
     client = MockLLMClient() if req.mock else HuggingFaceClient()
     response = u.ask_notable(person_id, req.question, llm_client=client)
+    prof = u.notables.get(person_id)
     store.save(u)
     return {
         "person_id": person_id,
         "question": req.question,
         "response": response,
+        "title": prof.title if prof else "",
+        "rank_grade": prof.rank_grade if prof else "Dirigeant",
+        "influence": prof.influence if prof else 20,
         "ai_budget": u.ai_budget.to_dict(),
     }
 

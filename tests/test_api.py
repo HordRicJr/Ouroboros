@@ -7,8 +7,10 @@ from api.main import app, universes, store
 @pytest.fixture(autouse=True)
 def clean_registry():
     universes.clear()
+    store.delete("test-api")
     yield
     universes.clear()
+    store.delete("test-api")
 
 
 def test_api_crud_and_steps():

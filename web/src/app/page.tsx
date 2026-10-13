@@ -244,11 +244,18 @@ export default function Home() {
       const res = await fetch(`${API}/universes/main/notables/${pid}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, mock: true }),
+        body: JSON.stringify({ question: q, mock: false }),
       });
       if (res.ok) {
         const data = await res.json();
         answer = data.response || answer;
+        if (data.influence || data.title) {
+          setSelected((prev) =>
+            prev && prev.id === pid
+              ? { ...prev, title: data.title || prev.title, rank_grade: data.rank_grade || prev.rank_grade, influence: data.influence || prev.influence, memories_count: (prev.memories_count || 0) + 1 }
+              : prev
+          );
+        }
       }
     } catch {
       /* réponse par défaut */
@@ -665,84 +672,156 @@ export default function Home() {
 
           {/* ===== Notables ===== */}
           {tab === "notables" && (
-            <div className="chat-layout">
-              <Panel icon={Users} title="Habitants" badge={notables.length}>
-                {notables.length === 0 ? (
-                  <Empty icon={UserRound} text="Aucun notable éveillé." />
-                ) : (
-                  notables.map((n) => (
-                    <button key={n.id} className={`person ${selected?.id === n.id ? "active" : ""}`} onClick={() => setSelected(n)}>
-                      <div className={`avatar ${n.sex === "F" ? "f" : ""}`}>
-                        {n.sex === "F" ? <UserRound size={20} /> : <User size={20} />}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div className="person-name">
-                          {n.name} · {Math.round(n.age)} ans
-                        </div>
-                        <div className="person-sub">{n.title}</div>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </Panel>
+            <div>
+              {/* Carte explicative : Intérêt et impact des dialogues */}
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: "14px 18px",
+                  borderRadius: "var(--radius)",
+                  background: "linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(56, 189, 248, 0.08) 100%)",
+                  border: "1px solid rgba(139, 92, 246, 0.25)",
+                  display: "flex",
+                  gap: 16,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ fontSize: "1.8rem" }}>🔮</div>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <strong style={{ color: "#c4b5fd", fontSize: "0.95rem" }}>
+                    Quel est l&apos;intérêt de dialoguer avec les notables ?
+                  </strong>
+                  <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: 4, lineHeight: 1.45 }}>
+                    Vous incarnez le <strong>Voyageur Céleste</strong>. Discuter avec un chef ou une matriarche permet de <strong>sonder son vécu réel</strong> (ses enfants, son foyer, ses doutes), d&apos;<strong>inspirer ses croyances</strong> (+2 influence morale) et d&apos;<strong>inscrire vos révélations dans les Chroniques</strong> de l&apos;univers !
+                  </div>
+                </div>
+              </div>
 
-              <section className="panel fade-in" style={{ minHeight: 0 }}>
-                {selected ? (
-                  <>
-                    <div className="panel-head">
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div className={`avatar ${selected.sex === "F" ? "f" : ""}`}>
-                          {selected.sex === "F" ? <UserRound size={20} /> : <User size={20} />}
+              <div className="chat-layout">
+                <Panel icon={Users} title="Hiérarchie des Notables" badge={`${notables.length} figures`}>
+                  {notables.length === 0 ? (
+                    <Empty icon={UserRound} text="Aucun notable éveillé pour le moment." />
+                  ) : (
+                    notables.map((n) => (
+                      <button key={n.id} className={`person ${selected?.id === n.id ? "active" : ""}`} onClick={() => setSelected(n)}>
+                        <div className={`avatar ${n.sex === "F" ? "f" : ""}`}>
+                          {n.sex === "F" ? <UserRound size={20} /> : <User size={20} />}
                         </div>
-                        <div>
-                          <div className="row-title">{selected.name}</div>
-                          <div className="row-sub" style={{ marginTop: 0 }}>
-                            {selected.title}
+                        <div style={{ minWidth: 0, textAlign: "left" }}>
+                          <div className="person-name" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <span>{n.name}</span>
+                            <span style={{ fontSize: "0.7rem", opacity: 0.75 }}>({Math.floor(n.age)} ans)</span>
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                                background: "rgba(139, 92, 246, 0.2)",
+                                color: "#a78bfa",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {n.rank_grade ?? "Dirigeant"}
+                            </span>
+                          </div>
+                          <div className="person-sub" style={{ marginTop: 2 }}>
+                            {n.title}
                           </div>
                         </div>
-                      </div>
-                      <span className="badge">
-                        {selected.memories_count} souvenir{selected.memories_count > 1 ? "s" : ""}
-                      </span>
-                    </div>
-
-                    <div className="chat-feed" ref={feedRef}>
-                      {messages.length === 0 && !asking ? (
-                        <Empty icon={MessageSquareText} text="Posez une question sur sa vie, ses peurs, ses croyances ou son clan." />
-                      ) : (
-                        messages.map((m, i) => (
-                          <div key={i} className={`bubble ${m.sender === "me" ? "me" : ""}`}>
-                            <div className="bubble-author">{m.author}</div>
-                            {m.text}
-                          </div>
-                        ))
-                      )}
-                      {asking && (
-                        <div className="bubble">
-                          <div className="bubble-author">{selected.name}</div>
-                          <Loader2 size={16} className="spin" />
-                        </div>
-                      )}
-                    </div>
-
-                    <form className="chat-form" onSubmit={ask}>
-                      <input
-                        id="chat-input"
-                        className="input"
-                        value={question}
-                        onChange={(e) => setQuestion(e.target.value)}
-                        placeholder={`Parler à ${selected.name}…`}
-                      />
-                      <button id="chat-send" type="submit" className="btn btn-primary" disabled={asking || !question.trim()}>
-                        <Send size={15} />
-                        Envoyer
                       </button>
-                    </form>
-                  </>
-                ) : (
-                  <Empty icon={UserRound} text="Sélectionnez un habitant." />
-                )}
-              </section>
+                    ))
+                  )}
+                </Panel>
+
+                <section className="panel fade-in" style={{ minHeight: 0 }}>
+                  {selected ? (
+                    <>
+                      <div className="panel-head">
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <div className={`avatar ${selected.sex === "F" ? "f" : ""}`}>
+                            {selected.sex === "F" ? <UserRound size={20} /> : <User size={20} />}
+                          </div>
+                          <div>
+                            <div className="row-title" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span>{selected.name}</span>
+                              <span
+                                style={{
+                                  fontSize: "0.74rem",
+                                  padding: "2px 8px",
+                                  borderRadius: "10px",
+                                  background: "rgba(139, 92, 246, 0.25)",
+                                  color: "#c4b5fd",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {selected.rank_grade ?? "Dirigeant"}
+                              </span>
+                              {selected.influence !== undefined && (
+                                <span style={{ fontSize: "0.72rem", color: "#fbbf24", fontWeight: 600 }}>
+                                  ★ {selected.influence} influence
+                                </span>
+                              )}
+                            </div>
+                            <div className="row-sub" style={{ marginTop: 2 }}>
+                              {selected.title} · {selected.sex === "M" ? "Homme" : "Femme"} de {Math.floor(selected.age)} ans
+                            </div>
+                          </div>
+                        </div>
+                        <span className="badge">
+                          {selected.memories_count} souvenir{selected.memories_count > 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      {/* Croyances et vision du monde */}
+                      {selected.beliefs && selected.beliefs.length > 0 && (
+                        <div style={{ padding: "8px 16px", background: "rgba(0, 0, 0, 0.15)", borderBottom: "1px solid var(--border)", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                          <span style={{ color: "#a78bfa", fontWeight: 600 }}>Croyances : </span>
+                          {selected.beliefs.slice(0, 2).join(" · ")}
+                        </div>
+                      )}
+
+                      <div className="chat-feed" ref={feedRef}>
+                        {messages.length === 0 && !asking ? (
+                          <Empty
+                            icon={MessageSquareText}
+                            text={`Posez une question à ${selected.name} : sur sa famille, ses enfants, son rôle de ${selected.rank_grade ?? "chef"}, ses peurs ou donnez-lui un conseil divin.`}
+                          />
+                        ) : (
+                          messages.map((m, i) => (
+                            <div key={i} className={`bubble ${m.sender === "me" ? "me" : ""}`}>
+                              <div className="bubble-author">{m.author}</div>
+                              {m.text}
+                            </div>
+                          ))
+                        )}
+                        {asking && (
+                          <div className="bubble">
+                            <div className="bubble-author">{selected.name}</div>
+                            <Loader2 size={16} className="spin" />
+                          </div>
+                        )}
+                      </div>
+
+                      <form className="chat-form" onSubmit={ask}>
+                        <input
+                          id="chat-input"
+                          className="input"
+                          value={question}
+                          onChange={(e) => setQuestion(e.target.value)}
+                          placeholder={`Parler à ${selected.name} (ex: "qui es-tu ?", "comment va ton fils Pelega ?", "un conseil pour la paix...")`}
+                        />
+                        <button id="chat-send" type="submit" className="btn btn-primary" disabled={asking || !question.trim()}>
+                          <Send size={15} />
+                          Envoyer
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <Empty icon={UserRound} text="Sélectionnez un habitant pour échanger." />
+                  )}
+                </section>
+              </div>
             </div>
           )}
 

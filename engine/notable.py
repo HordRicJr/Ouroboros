@@ -30,14 +30,16 @@ class MemoryItem:
 @dataclass
 class NotableProfile:
     person_id: int
-    title: str = "Habitant"                 # Ex: Chef de clan, Chamane, Chasseur émérite, Patriarche
+    title: str = "Habitant"                 # Ex: Patriarche Fondateur, Chef de clan, Grand Chamane, etc.
+    rank_grade: str = "Dirigeant"           # Fondateur, Souverain, Dirigeant, Spirituel, Militaire, Juge, Savant, Doyen
+    influence: int = 20                     # Indice d'influence / autorité morale (1 à 100)
     beliefs: list[str] = field(default_factory=lambda: [
         "Les esprits de la terre veillent sur nos pas",
         "Les saisons sont guidées par le souffle des ancêtres"
     ])
     memories: list[MemoryItem] = field(default_factory=list)
     short_term_log: list[str] = field(default_factory=list)
-    max_memories: int = 20
+    max_memories: int = 25
 
     def add_memory(self, tick: int, year: int, text: str, impact: float = 0.5):
         self.memories.append(MemoryItem(tick, year, text, impact))
@@ -49,12 +51,14 @@ class NotableProfile:
 
     def log_short_term(self, text: str):
         self.short_term_log.append(text)
-        if len(self.short_term_log) > 5:
+        if len(self.short_term_log) > 6:
             self.short_term_log.pop(0)
 
     def summary_context(self) -> str:
         """Produit le résumé de la mémoire pour injection dans le prompt."""
         lines = []
+        if self.title:
+            lines.append(f"Titre honorifique & Grade : {self.title} [Rang : {self.rank_grade}]")
         if self.beliefs:
             lines.append("Croyances et vision du monde : " + "; ".join(self.beliefs))
         if self.memories:
@@ -68,6 +72,8 @@ class NotableProfile:
         return {
             "person_id": self.person_id,
             "title": self.title,
+            "rank_grade": self.rank_grade,
+            "influence": self.influence,
             "beliefs": list(self.beliefs),
             "memories": [m.to_dict() for m in self.memories],
             "short_term_log": list(self.short_term_log),
@@ -78,6 +84,8 @@ class NotableProfile:
         p = cls(
             person_id=d["person_id"],
             title=d.get("title", "Habitant"),
+            rank_grade=d.get("rank_grade", "Dirigeant"),
+            influence=d.get("influence", 20),
             beliefs=d.get("beliefs", []),
             short_term_log=d.get("short_term_log", []),
         )
