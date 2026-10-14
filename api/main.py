@@ -42,29 +42,37 @@ _main_event_loop: asyncio.AbstractEventLoop | None = None
 
 
 async def _universe_step_loop(universe_id: str):
+    """Avance le monde par lots espacés pour laisser l'API HTTP respirer (GIL CPython).
+
+    Sur 8 Go, un step() Python/numpy bloque le GIL : si on step en continu,
+    le front voit « Moteur inaccessible » par intermittence. On espace donc les
+    bursts (min ~2 s) et on regroupe plusieurs jours selon la vitesse.
+    """
     logger.info("Boucle de simulation continue H24 démarrée pour '%s'", universe_id)
     step_count = 0
     try:
         while True:
-            speed = _running_speeds.get(universe_id, 1.0)
-            delay = max(0.05, 1.0 / max(speed, 0.1))
+            speed = min(30.0, max(0.1, _running_speeds.get(universe_id, 1.0)))
+            # Fenêtre HTTP libre entre les bursts CPU
+            delay = 2.0 if speed <= 1.0 else (1.5 if speed <= 5.0 else 1.0)
+            days = 1 if speed <= 1.0 else (5 if speed <= 5.0 else 15)
             await asyncio.sleep(delay)
             u = universes.get(universe_id)
-            if u:
-                u.step(1)
-                step_count += 1
-                # Sauvegarde rare : sérialiser un snapshot numpy double la RAM et provoque des OOM sur 8 Go
-                if step_count % 500 == 0:
-                    try:
-                        store.save(u)
-                    except (RuntimeError, ValueError, OSError) as s_err:
-                        logger.error("Erreur de sauvegarde périodique de '%s': %s", universe_id, s_err)
+            if not u:
+                continue
+            await asyncio.to_thread(u.step, days)
+            step_count += days
+            if step_count % 1000 < days:
+                try:
+                    await asyncio.to_thread(store.save, u)
+                except (RuntimeError, ValueError, OSError) as s_err:
+                    logger.error("Erreur de sauvegarde périodique de '%s': %s", universe_id, s_err)
     except asyncio.CancelledError:
         logger.info("Boucle de simulation continue stoppée pour '%s'", universe_id)
         u = universes.get(universe_id)
         if u:
             try:
-                store.save(u)
+                await asyncio.to_thread(store.save, u)
             except (RuntimeError, ValueError, OSError):
                 pass
     except Exception:
@@ -89,13 +97,26 @@ def _start_universe_loop(universe_id: str, speed: float = 1.0):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _main_event_loop
+    global _main_event_loop, _universe_ready
     _main_event_loop = asyncio.get_running_loop()
-    # Démarrage automatique H24 de l'univers principal dès le lancement du serveur
-    logger.info("Démarrage du service Ouroboros API - Lancement de la simulation H24 pour 'main'...")
-    _start_universe_loop("main", speed=1.0)
+    logger.info("Démarrage Ouroboros API — healthcheck immédiat, chargement univers en arrière-plan")
+
+    async def _boot() -> None:
+        global _universe_ready
+        try:
+            u = await asyncio.to_thread(_load_main_universe)
+            universes["main"] = u
+            multiverse.register(u)
+            _universe_ready = True
+            logger.info("Univers prêt — démarrage H24 espacé")
+            await asyncio.sleep(2)
+            _start_universe_loop("main", speed=1.0)
+        except Exception:
+            logger.exception("Échec boot univers")
+
+    boot_task = asyncio.create_task(_boot())
     yield
-    # Arrêt propre lors de l'arrêt du serveur
+    boot_task.cancel()
     logger.info("Arrêt du service Ouroboros API...")
     for uid, task in list(_running_tasks.items()):
         if not task.done():
@@ -130,21 +151,27 @@ else:
         allow_headers=["*"],
     )
 
-# Initialisation ou chargement persistant de l'univers 'main'
-if store.exists("main"):
-    try:
-        _default_u = store.load("main")
-        logger.info("Univers 'main' chargé depuis la persistance (Tick: %d, Date: %s)", _default_u.tick, _default_u.date)
-    except (RuntimeError, ValueError, KeyError, OSError) as exc:
-        logger.warning("Erreur chargement 'main': %s - réinitialisation", exc)
-        _default_u = Universe("main", 42, start_year=0, cultural_frame="neutral")
-        store.save(_default_u)
-else:
-    _default_u = Universe("main", 42, start_year=0, cultural_frame="neutral")
-    store.save(_default_u)
+# L'univers 'main' est chargé dans lifespan (lazy) pour que /api/health
+# réponde immédiatement au boot — sinon uvicorn reste muet 30–60s et le front
+# affiche « Moteur inaccessible » en boucle.
+_universe_ready = False
 
-universes["main"] = _default_u
-multiverse.register(_default_u)
+
+def _load_main_universe() -> Universe:
+    try:
+        store.init()
+    except (RuntimeError, ValueError, OSError, AttributeError):
+        pass
+    if store.exists("main"):
+        try:
+            u = store.load("main")
+            logger.info("Univers 'main' chargé (Tick: %d, Date: %s)", u.tick, u.date)
+            return u
+        except (RuntimeError, ValueError, KeyError, OSError) as exc:
+            logger.warning("Erreur chargement 'main': %s - réinitialisation", exc)
+    u = Universe("main", 42, start_year=0, cultural_frame="neutral")
+    store.save(u)
+    return u
 
 
 class CreateUniverseRequest(BaseModel):
@@ -182,7 +209,11 @@ class ForkUniverseRequest(BaseModel):
 # --- Endpoints de base et santé requis par le serveur ---
 @app.get("/api/health")
 def api_health() -> dict[str, str]:
-    return {"status": "ok", "api": "ok"}
+    return {
+        "status": "ok",
+        "api": "ok",
+        "universe_ready": "yes" if _universe_ready else "loading",
+    }
 
 
 @app.get("/api/diagnostic/system")
@@ -889,6 +920,8 @@ def get_research_protocol(universe_id: str) -> dict[str, Any]:
 def _get_universe(universe_id: str) -> Universe:
     if universe_id in universes:
         return universes[universe_id]
+    if universe_id == "main" and not _universe_ready:
+        raise HTTPException(status_code=503, detail="Univers en cours de chargement, réessayez dans quelques secondes.")
     if store.exists(universe_id):
         u = store.load(universe_id)
         universes[universe_id] = u

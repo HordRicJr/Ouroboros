@@ -84,7 +84,7 @@ const TITLES: Record<Tab, { title: string; sub: string }> = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
-async function apiFetch(path: string, init?: RequestInit, timeoutMs = 4000): Promise<Response> {
+async function apiFetch(path: string, init?: RequestInit, timeoutMs = 12000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -103,7 +103,7 @@ async function apiFetch(path: string, init?: RequestInit, timeoutMs = 4000): Pro
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await apiFetch(path, { cache: "no-store" }, 3000);
+    const res = await apiFetch(path, { cache: "no-store" }, 10000);
     return res.ok ? ((await res.json()) as T) : null;
   } catch {
     return null;
@@ -127,7 +127,7 @@ export default function Home() {
   const [asking, setAsking] = useState(false);
   const [stepping, setStepping] = useState<number | null>(null);
   const [resetting, setResetting] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<number>(1);
   const [metricsSummary, setMetricsSummary] = useState<MetricsSummary | null>(null);
   const [latestMetric, setLatestMetric] = useState<SeasonalMetric | null>(null);
@@ -186,10 +186,24 @@ export default function Home() {
   const consecutiveErrorsRef = useRef(0);
 
   const refreshTick = useCallback(async () => {
+    // Health d'abord : léger, ne dépend pas du chargement de l'univers
+    try {
+      const health = await apiFetch("/api/health", { cache: "no-store" }, 5000);
+      if (!health.ok) {
+        consecutiveErrorsRef.current += 1;
+        if (consecutiveErrorsRef.current >= 5) setOnline(false);
+        return;
+      }
+      setOnline(true);
+      consecutiveErrorsRef.current = 0;
+    } catch {
+      consecutiveErrorsRef.current += 1;
+      if (consecutiveErrorsRef.current >= 5) setOnline(false);
+      return;
+    }
+
     const u = await getJson<UniverseInfo>("/universes/main");
     if (u) {
-      consecutiveErrorsRef.current = 0;
-      setOnline(true);
       setUniverse((prev) => {
         if (prev && (prev.settlements_count !== u.settlements_count || prev.notables_count !== u.notables_count)) {
           refreshFull();
@@ -202,26 +216,20 @@ export default function Home() {
       if (u.speed) {
         setSpeed(u.speed);
       }
-    } else {
-      consecutiveErrorsRef.current += 1;
-      // Tolérance : marquer hors ligne uniquement après 3 échecs consécutifs pour éviter tout clignotement
-      if (consecutiveErrorsRef.current >= 3) {
-        setOnline(false);
-      }
     }
   }, [refreshFull]);
 
-  // Initialisation et rafraîchissement global périodique
+  // Initialisation et rafraîchissement global périodique (espacé pour ne pas saturer l'API 8 Go)
   useEffect(() => {
     refreshFull();
-    const id = setInterval(refreshFull, 15000);
+    const id = setInterval(refreshFull, 30000);
     return () => clearInterval(id);
   }, [refreshFull]);
 
-  // Suivi en temps réel H24 : synchronisation avec l'horloge du serveur (intervalle calibré anti-congestion)
+  // Suivi léger H24 — un seul endpoint, rythme modéré
   useEffect(() => {
     if (!isPlaying) return;
-    const intervalMs = speed === 30 ? 1200 : speed === 5 ? 2000 : 3000;
+    const intervalMs = speed === 30 ? 4000 : speed === 5 ? 5000 : 6000;
     const timer = setInterval(refreshTick, intervalMs);
     return () => clearInterval(timer);
   }, [isPlaying, speed, refreshTick]);
@@ -560,7 +568,7 @@ export default function Home() {
                       ? `${Math.abs(universe.year)} av. J.-C.`
                       : `An ${universe?.year ?? 0}`
                   }
-                  sub="Départ en 4004 av. J.-C."
+                  sub={universe?.cultural_frame === "biblical" ? "Cadre biblique (expérimental)" : "Cadre neutre · an 0"}
                   tone="#5bb8f5"
                 />
                 <StatCard
