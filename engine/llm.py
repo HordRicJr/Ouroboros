@@ -60,44 +60,24 @@ class ContextualPersonaGenerator:
         has_spouse = "Conjoint(e)" in kin or "Épous" in kin
         has_children = "Enfants" in kin
 
-        # 1. Traitement spécifique des Tabous, Interdictions et Fruits défendus (Écho mythologique / Pomme)
-        is_prohibition = any(w in query for w in ["tabou", "interdit", "défendu", "ne dois pas", "ne mange pas", "ne pas manger", "ne touchez", "ne consomme", "défense de"])
-        mentions_apple = any(w in query for w in ["pomme", "pommes", "fruit défendu", "pommier"])
-        
-        if is_prohibition and mentions_apple:
-            return (
-                "Un tabou sur les pommes ? Tu nous révèles donc que ce fruit porte un interdit céleste et sacré... "
-                "J'en fais le serment devant toi : ni moi, ni les miens ne porterons la main sur ces fruits de l'arbre. "
-                "Nous laisserons la pomme sur sa branche pour ne point attirer le courroux des cieux. "
-                "Mais dis-moi, voyageur, quel péril frapperait notre chair et notre communauté si l'un de nous venait à en croquer ?"
-            )
-
-        if mentions_apple:
-            return (
-                "La pomme... Tu évoques ce fruit qui mûrit au soleil des bosquets. "
-                "Tes paroles résonnent avec gravité, comme si cet arbre cachait un destin redoutable ou une épreuve pour notre innocence. "
-                "Nous garderons nos distances avec ce fruit pour préserver la paix de notre campement."
-            )
-
+        # 1. Propositions / interdits : réponse ouverte (pas de serment scripté)
+        is_prohibition = any(w in query for w in [
+            "tabou", "interdit", "défendu", "ne dois pas", "ne mange pas", "ne pas manger",
+            "ne touchez", "ne consomme", "défense de",
+        ])
         if is_prohibition:
-            # Identifier l'objet de l'interdit
-            target = "cette chose"
-            for candidate in ["viande", "sang", "chasse", "feu", "nuit", "arbre", "eau", "mensonge", "guerre", "violence"]:
-                if candidate in query:
-                    target = f"toucher à {candidate}"
-                    break
             return (
-                f"Un interdit sacré sur {target} ? Si telle est la parole que tu apportes de par-delà l'horizon, "
-                f"nous la graverons dans les mémoires de notre peuple. Tant que je serai {title}, "
-                f"je veillerai à ce que nul dans notre clan ne brave ce tabou. Notre survie dépend de l'harmonie avec les lois secrètes du monde."
+                f"J'entends ta parole, voyageur. En tant que {title}, je ne puis engager tout {clan} "
+                f"sur un seul échange. Je méditerai ce que tu dis auprès des miens, "
+                f"et chacun décidera s'il convient de changer nos usages — ou de les garder."
             )
 
         # 2. Salutations et présentations
         if any(w in query for w in ["salut", "bonjour", "cc", "hello", "coucou", "qui es-tu", "qui t'es", "qui es tu", "te presente"]):
             return (
-                f"Salutations, voyageur venu d'au-delà de l'horizon. Je me nomme {name}, et je sers notre communauté en qualité de {title}. "
-                f"En cette année de {date_display}, notre vie s'épanouit au sein de {clan}. "
-                f"Dis-moi, quelle quête ou quelle sagesse t'amène auprès du feu de notre campement ?"
+                f"Salutations, voyageur. Je me nomme {name}. "
+                f"En cette année de {date_display}, je vis parmi {clan}. "
+                f"Que cherches-tu auprès de notre feu ?"
             )
 
         # 3. Conjoint(e) / Mariage / Compagne
@@ -152,12 +132,11 @@ class ContextualPersonaGenerator:
                 "espérant mériter chaque aurore qui nous est accordée."
             )
 
-        # 8. Rôle, hiérarchie, autorité et gouvernance
-        if any(w in query for w in ["rôle", "role", "grade", "rang", "hiérarchie", "titre", "fais-tu", "que fais", "travail", "mission"]):
+        # 8. Rôle quotidien (sans vocabulaire de théorie sociale)
+        if any(w in query for w in ["rôle", "role", "fais-tu", "que fais", "travail", "mission", "occupation"]):
             return (
-                f"Mon rang de {title} n'est pas un vain mot : c'est la charge d'arbitrer les différends, d'encourager les faibles, "
-                f"de guider la chasse et de transmettre la coutume sacrée. "
-                f"Tant que mon souffle sera chaud, je tiendrai ce rôle pour préserver l'harmonie de notre monde."
+                f"On m'appelle parfois {title} parce que d'autres viennent me parler. "
+                f"Le reste du temps, je chasse, je partage, je veille — comme chacun d'entre nous."
             )
 
         # 9. Nourriture, chasse, cueillette
@@ -189,8 +168,11 @@ class ContextualPersonaGenerator:
 class MockLLMClient:
     """Client d'inférence contextualisé et résilient avec repli incarné intelligent."""
 
-    def __init__(self, fixed_response: str | None = None):
+    def __init__(self, fixed_response: str | None = None, model_name: str = "mock-contextual"):
         self.fixed_response = fixed_response
+        self.model_name = model_name
+        self.model_fingerprint = "mock"
+        self.llama_cpp_version = ""
         self.call_history: list[list[dict[str, str]]] = []
 
     def generate(self, messages: list[dict[str, str]], max_tokens: int = 256, temperature: float = 0.7) -> str:
@@ -225,8 +207,18 @@ class MockLLMClient:
 class HuggingFaceClient:
     """Client pour llama-server local, vLLM ou Hugging Face Inference API."""
 
-    def __init__(self, model_id: str = "Qwen/Qwen2.5-7B-Instruct", api_token: str | None = None, api_url: str | None = None):
+    def __init__(
+        self,
+        model_id: str = "Qwen/Qwen2.5-7B-Instruct",
+        api_token: str | None = None,
+        api_url: str | None = None,
+        model_fingerprint: str = "",
+        llama_cpp_version: str = "",
+    ):
         self.model_id = model_id
+        self.model_name = model_id
+        self.model_fingerprint = model_fingerprint or os.environ.get("LLM_MODEL_SHA256", "")
+        self.llama_cpp_version = llama_cpp_version or os.environ.get("LLAMA_CPP_VERSION", "")
         self.api_token = api_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_KEY", "")
         # Priorité à l'endpoint local si spécifié ou présent
         self.api_url = (

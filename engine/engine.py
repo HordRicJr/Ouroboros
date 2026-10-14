@@ -48,7 +48,7 @@ ECO_DAYS = 7  # l'écosystème de masse avance par pas de 7 jours
 
 class Universe:
     def __init__(self, universe_id: str, seed: int, consts: UniverseConstants | None = None,
-                 start_year: int = -4004, parent_id: str | None = None,
+                 start_year: int = 0, parent_id: str | None = None,
                  world: WorldMap | None = None, tick: int = 0,
                  eco: Ecosystem | None = None, people: People | None = None,
                  society: Society | None = None,
@@ -71,19 +71,23 @@ class Universe:
                  agent_cognitions: dict[int, AgentCognition] | None = None,
                  metrics_history: SimulationMetricsHistory | None = None,
                  ai_logger: AICallLogger | None = None,
-                 branch_metadata: BranchMetadata | None = None):
+                 branch_metadata: BranchMetadata | None = None,
+                 cultural_frame: str = "neutral"):
         self.id = universe_id
         self.seed = seed
         self.consts = consts or UniverseConstants()
         self.start_year = start_year
         self.parent_id = parent_id
+        self.cultural_frame = cultural_frame if cultural_frame in ("neutral", "biblical") else "neutral"
         self.rng = Rng(seed)
         self.calendar = Calendar(self.consts.year_length_days, start_year)
         self.world = world or generate_world(self.consts, self.rng)
         self.climate = Climate(self.world, self.consts, self.rng)
         self.tick = tick
         self.eco = eco or Ecosystem.genesis(self.world, self.consts, self.rng, tick)
-        self.people = people or People.genesis(self.eco, self.rng, tick)
+        self.people = people or People.genesis(
+            self.eco, self.rng, tick, cultural_frame=self.cultural_frame
+        )
         self.society = society or Society.genesis(self.people, self.eco, self.rng, self.world, tick)
         self.languages = languages or LanguageRegistry.genesis(self.rng)
         self.technology = technology or TechnologyRegistry.genesis(self.society)
@@ -282,7 +286,17 @@ class Universe:
                 activity_counts["chasse"] += 1
             else:
                 activity_counts["cueillette"] += 1
+            # Soin approximé par présence d'enfants
+            if p.children_ids:
+                activity_counts["soin"] += 1
         behav_entropy = calculate_shannon_entropy(activity_counts)
+        job_entropy = behav_entropy  # proxy tant que les activités ouvertes ne sont pas en place
+
+        def _variance(vals: list[float]) -> float:
+            if len(vals) < 2:
+                return 0.0
+            mean = sum(vals) / len(vals)
+            return round(sum((v - mean) ** 2 for v in vals) / len(vals), 4)
 
         n_edges = sum(len(sources) for sources in self.social_graph.deference_edges.values())
         max_possible_edges = max(1, pop * (pop - 1))
@@ -291,6 +305,12 @@ class Universe:
         recent_deaths = [p for p in self.people.persons.values() if p.death_tick and p.death_tick > self.tick - 365]
         infant_deaths = [p for p in recent_deaths if self.people.age_years(p, p.death_tick) < 5.0]
         infant_mort_rate = round(len(infant_deaths) / max(1, len(recent_deaths)), 3) if recent_deaths else 0.05
+
+        lexicon_size = 0
+        if hasattr(self, "languages"):
+            lexicon_size = sum(len(getattr(lang, "lexicon", {}) or {}) for lang in self.languages.languages.values())
+
+        from .immersion import ImmersionFilter
 
         snap = SeasonalMetricsSnapshot(
             tick=self.tick,
@@ -303,6 +323,9 @@ class Universe:
             gini_resources=gini_res,
             gini_influence=gini_inf,
             behavioral_entropy=behav_entropy,
+            job_specialization_entropy=job_entropy,
+            resource_variance=_variance(food_per_person),
+            influence_variance=_variance(inf_values),
             network_density=density,
             avg_deference=round(sum(inf_values) / max(1, len(inf_values)), 1),
             max_deference=round(max(inf_values) if inf_values else 0.0, 1),
@@ -310,6 +333,9 @@ class Universe:
             active_taboos_count=sum(len(c.taboos) for c in self.society.clans.values()),
             active_customs_count=len(self.justice.legal_codes),
             beliefs_count=sum(len(prof.beliefs) for prof in self.notables.values()),
+            lexicon_size=lexicon_size,
+            anachronism_rate=ImmersionFilter.anachronism_rate(),
+            ai_calls_per_year=self.ai_logger.calls_per_simulated_year(self.start_year, year),
         )
         self.metrics_history.record_snapshot(snap)
 
@@ -319,11 +345,18 @@ class Universe:
                 m_id = ev.payload.get("mother_id")
                 f_id = ev.payload.get("father_id")
                 name = ev.payload.get("name")
+                child_id = ev.payload.get("person_id") or ev.payload.get("child_id") or ev.payload.get("id")
                 for parent in (m_id, f_id):
                     if parent in self.notables:
                         self.notables[parent].add_memory(self.tick, year, f"Naissance de mon enfant {name}", impact=0.8)
                     if parent in self.agent_cognitions:
                         self.agent_cognitions[parent].add_memory(self.tick, year, f"Naissance de mon enfant {name}", importance=0.8)
+                if child_id is not None and int(child_id) not in self.agent_cognitions:
+                    mother_cog = self.agent_cognitions.get(m_id) if m_id else None
+                    father_cog = self.agent_cognitions.get(f_id) if f_id else None
+                    self.agent_cognitions[int(child_id)] = AgentCognition.inherit_from_parents(
+                        int(child_id), mother_cog, father_cog, seed=self.seed + int(child_id)
+                    )
                 if m_id and f_id:
                     self.social_graph.record_interaction(self.tick, year, m_id, f_id, "mention", 1.0)
                     self.social_graph.record_interaction(self.tick, year, f_id, m_id, "mention", 1.0)
@@ -527,6 +560,7 @@ class Universe:
         meta = {
             "id": self.id, "seed": self.seed, "consts": self.consts.to_dict(),
             "start_year": self.start_year, "parent_id": self.parent_id, "tick": self.tick,
+            "cultural_frame": self.cultural_frame,
             "species": [s.to_dict() for s in self.eco.species],
             "human_cells": [list(c) for c in self.eco.human_cells],
             "people": self.people.to_dict(),
@@ -592,7 +626,8 @@ class Universe:
                    languages, technology, warfare, chronicles, disasters, religion, settlements,
                    justice, trade, economy, realms, erudition, ouroboros, notables, ai_budget,
                    social_graph=social_graph, agent_cognitions=agent_cognitions,
-                   metrics_history=metrics_history, ai_logger=ai_logger, branch_metadata=branch_metadata)
+                   metrics_history=metrics_history, ai_logger=ai_logger, branch_metadata=branch_metadata,
+                   cultural_frame=meta.get("cultural_frame", getattr(people, "cultural_frame", "neutral")))
 
     def ask_notable(self, person_id: int, question: str, llm_client: LLMClient | None = None) -> str:
         """Interroge un individu notable sous immersion totale en respectant l'autonomie cognitive émergente."""
@@ -697,6 +732,8 @@ class Universe:
             "date": str(d),
             "year": d.year,
             "start_year": self.start_year,
+            "cultural_frame": self.cultural_frame,
+            "ai_calls_per_year": self.ai_logger.calls_per_simulated_year(self.start_year, d.year),
             "day_of_year": d.day_of_year,
             "day": d.day_of_year + 1,
             "year_length": d.year_length,

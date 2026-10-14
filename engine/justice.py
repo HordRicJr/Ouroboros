@@ -1,10 +1,8 @@
-"""M20 - Lois, Codes de Justice, Rangs Sociaux & Stratification Politique.
+"""Lois coutumières et litiges — sans table de grades imposée.
 
-Ce module modélise l'émergence des institutions judiciaires et politiques :
-- Rangs et castes sociales : Chefs suprêmes, Chamanes/Prêtres, Guerriers d'élite, Artisans, Laboureurs
-- Édiction de codes de lois coutumières (Lex Talionis, compensation en bétail, bannissement, ordalie)
-- Jugements et ordalies pour les délits (vols, homicides, rupture de tabou)
-- Cohésion sociale et risque d'insurrection / révolte interne
+Les rangs sociaux ne sont plus assignés par le code (Priorité 1A).
+Le statut vient du graphe de déférence (`social_graph`). Ce module enregistre
+seulement des faits : codes adoptés, procès, bannissements.
 """
 from __future__ import annotations
 
@@ -18,20 +16,12 @@ if TYPE_CHECKING:
     from .rng import Rng
     from .society import Society
 
-SOCIAL_RANKS = [
-    "Chef Suprême",
-    "Guerrier d'Élite",
-    "Chamane & Gardien des Rites",
-    "Maître Artisan",
-    "Chasseur-Cueilleur",
-    "Banni / Hors-la-loi",
-]
-
+# Principes génériques (contenu variable) — pas de titres politiques.
 CUSTOMARY_LAWS = [
-    ("Loi du Talion", "Œil pour œil : tout préjudice physique est rendu à l'agresseur."),
-    ("Wergild (Compensation)", "Le sang versé ou le vol est racheté par un tribut de peaux et de vivres."),
-    ("Le Grand Bannissement", "Quiconque brise le tabou sacré du clan est exilé dans les terres sauvages."),
-    ("L'Ordalie du Feu", "L'innocence est prouvée en portant une pierre chauffée au foyer sans brûlure grave."),
+    ("Compensation mutuelle", "Un préjudice est racheté par un tribut de peaux et de vivres."),
+    ("Éloignement du camp", "Quiconque brise une coutume partagée peut être tenu à l'écart."),
+    ("Épreuve du foyer", "Un différend peut être tranché par une épreuve acceptée par les présents."),
+    ("Restitution", "Ce qui a été pris doit être rendu ou remplacé."),
 ]
 
 
@@ -41,7 +31,7 @@ class LegalCode:
     law_name: str
     law_principle: str
     enacted_year: int
-    strictness: float = 0.5  # 0.0 (permissif) à 1.0 (inflexible)
+    strictness: float = 0.5
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -60,7 +50,7 @@ class Trial:
     accused_id: int
     accused_name: str
     crime: str
-    verdict: str  # "acquitté", "amende_wergild", "bannissement", "châtiment_corporel"
+    verdict: str
     punishment_text: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,39 +62,41 @@ class Trial:
 
 
 class JusticeSystem:
-    """Gestionnaire de la justice, des rangs sociaux et des ordalies."""
+    """Faits judiciaires sans hiérarchie préétablie."""
 
     def __init__(self):
-        self.legal_codes: dict[int, LegalCode] = {}  # clan_id -> LegalCode
+        self.legal_codes: dict[int, LegalCode] = {}
         self.trials: list[Trial] = []
-        self.person_ranks: dict[int, str] = {}       # person_id -> Social Rank
+        # Conservé pour compatibilité API / snapshots : statut factuel seulement
+        # (ex. "écarté du camp"), jamais une table Chef/Chamane/Juge.
+        self.person_ranks: dict[int, str] = {}
         self.next_trial_id = 1
+        self.banished_ids: set[int] = set()
 
     def assign_ranks(self, society: Society, people: People):
-        """Met à jour les rangs sociaux selon le rôle et le prestige de chaque individu."""
-        for clan in society.clans.values():
-            for pid in clan.member_ids:
-                p = people.persons.get(pid)
-                if not p or not p.alive:
-                    continue
-
-                if pid == clan.leader_id:
-                    self.person_ranks[pid] = "Chef Suprême"
-                elif pid == clan.matriarch_id:
-                    self.person_ranks[pid] = "Chamane & Gardien des Rites"
-                elif p.notable:
-                    self.person_ranks[pid] = "Guerrier d'Élite" if p.sex == "M" else "Maître Artisan"
+        """Ne fixe plus de grades. Nettoie les anciens titres scriptés s'ils existent."""
+        scripted = {
+            "Chef Suprême",
+            "Guerrier d'Élite",
+            "Chamane & Gardien des Rites",
+            "Maître Artisan",
+            "Chasseur-Cueilleur",
+            "Banni / Hors-la-loi",
+        }
+        for pid in list(self.person_ranks.keys()):
+            if self.person_ranks[pid] in scripted:
+                if pid in self.banished_ids:
+                    self.person_ranks[pid] = "écarté du camp"
                 else:
-                    self.person_ranks[pid] = "Chasseur-Cueilleur"
+                    del self.person_ranks[pid]
 
     def step(self, tick: int, year: int, society: Society, people: People, rng: Rng) -> list[Event]:
-        """Évolution annuelle du système judiciaire et tenue des ordalies."""
         events: list[Event] = []
         g = rng.gen("justice", tick)
 
         self.assign_ranks(society, people)
 
-        # 1. Édiction de lois pour les clans sédentaires ou de plus de 10 membres
+        # Adoption d'une coutume écrite si le groupe est assez large (fait, pas titre)
         for clan in society.clans.values():
             if clan.id not in self.legal_codes and len(clan.member_ids) >= 10:
                 law_title, law_desc = CUSTOMARY_LAWS[int(g.integers(0, len(CUSTOMARY_LAWS)))]
@@ -124,7 +116,6 @@ class JusticeSystem:
                     "year": year,
                 }))
 
-        # 2. Litiges et ordalies (tirage rare annuel : 15% de chance par clan ayant des lois)
         for clan in society.clans.values():
             if clan.id not in self.legal_codes or not clan.member_ids:
                 continue
@@ -136,25 +127,25 @@ class JusticeSystem:
                     continue
 
                 crime = str(g.choice([
-                    "Vol de viandes séchées dans le grenier commun",
-                    "Rupture délibérée du tabou sacré du clan",
-                    "Dispute violente ayant blessé un ancien",
-                    "Refus d'obéissance au chef de clan",
+                    "Prise de vivres du stock commun",
+                    "Transgression d'une coutume du camp",
+                    "Altercation ayant blessé un autre membre",
+                    "Refus de contribuer à une tâche partagée",
                 ]))
 
-                # Délibération selon la sévérité du code de loi
                 code = self.legal_codes[clan.id]
                 roll = float(g.random())
                 if roll < 0.30:
                     verdict = "acquitté"
-                    punishment = "Reconnu innocent par l'ordalie des ancêtres."
+                    punishment = "Reconnu innocent par les présents."
                 elif roll < 0.70:
                     verdict = "amende_wergild"
-                    punishment = "Doit payer 5 peaux tannées et servir le clan aux corvées."
+                    punishment = "Doit restituer peaux et servir aux corvées."
                 else:
                     verdict = "bannissement"
-                    punishment = "Banni du territoire du clan pour trois hivers."
-                    self.person_ranks[accused.id] = "Banni / Hors-la-loi"
+                    punishment = "Écarté du territoire du camp pour trois hivers."
+                    self.banished_ids.add(accused.id)
+                    self.person_ranks[accused.id] = "écarté du camp"
 
                 trial = Trial(
                     id=self.next_trial_id,
@@ -189,6 +180,7 @@ class JusticeSystem:
             "legal_codes": [c.to_dict() for c in self.legal_codes.values()],
             "trials": [t.to_dict() for t in self.trials],
             "person_ranks": {str(k): v for k, v in self.person_ranks.items()},
+            "banished_ids": list(self.banished_ids),
             "next_trial_id": self.next_trial_id,
         }
 
@@ -199,4 +191,5 @@ class JusticeSystem:
         js.legal_codes = {c["clan_id"]: LegalCode.from_dict(c) for c in d.get("legal_codes", [])}
         js.trials = [Trial.from_dict(t) for t in d.get("trials", [])]
         js.person_ranks = {int(k): v for k, v in d.get("person_ranks", {}).items()}
+        js.banished_ids = set(int(x) for x in d.get("banished_ids", []))
         return js

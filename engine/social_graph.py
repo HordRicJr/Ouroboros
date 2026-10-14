@@ -116,24 +116,30 @@ class SocialGraph:
         children_count: int,
         clan_name: str | None = None,
     ) -> tuple[str, str]:
-        """Déduit un qualificatif descriptif basé sur les faits, sans hiérarchie préétablie."""
+        """Qualificatif descriptif empirique (pas un grade imposé).
+
+        Critères documentés (préenregistrement) :
+        - centralité ≥ 75 → souvent consulté
+        - centralité ≥ 45 → voix entendue
+        - âge ≥ 40 → aîné
+        Les libellés sont des descriptions, pas des institutions.
+        """
         suffix = f" ({clan_name})" if clan_name else ""
 
-        # Détermination empirique selon les faits observés
         if centrality >= 75.0:
             if age >= 35:
-                return f"Ancien respecté{suffix}", "Conseiller"
-            return f"Figure écoutée{suffix}", "Guide"
+                return f"Souvent consulté{suffix}", "écoute"
+            return f"Voix souvent entendue{suffix}", "écoute"
         elif centrality >= 45.0:
             if children_count >= 3:
-                return f"Pilier de maisonnée{suffix}", "Pilier"
-            return f"Voix consultée{suffix}", "Conseiller"
+                return f"Pilier de maisonnée{suffix}", "maison"
+            return f"Voix consultée{suffix}", "écoute"
         elif age >= 40:
-            return f"Aîné de la communauté{suffix}", "Aîné"
+            return f"Aîné du camp{suffix}", "âge"
         elif children_count > 0:
-            return f"Parent de famille{suffix}", "Membre"
+            return f"Parent{suffix}", "maison"
         else:
-            return f"Habitant{suffix}", "Membre"
+            return f"Habitant{suffix}", "membre"
 
     def to_dict(self) -> dict[str, Any]:
         return {

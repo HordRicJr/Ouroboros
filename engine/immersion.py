@@ -23,7 +23,14 @@ FORBIDDEN_SIMULATION_TERMS = [
     r"\bsimulation\b", r"\bsimulé\b", r"\bsimuler\b", r"\bordinateur\b", r"\bia\b",
     r"\bintelligence artificielle\b", r"\bprogramme\b", r"\bcode\b", r"\balgorithme\b",
     r"\bserveur\b", r"\bnumérique\b", r"\bpixel\b", r"\bmatrice\b", r"\bbot\b",
-    r"\blangage python\b", r"\bbackend\b", r"\bdatabase\b", r"\bdataset\b"
+    r"\blangage python\b", r"\bbackend\b", r"\bdatabase\b", r"\bdataset\b",
+]
+
+# Mots de théorie / expérience à écarter des prompts (PIMMUR minimal-control & unawareness)
+FORBIDDEN_THEORY_TERMS = [
+    r"\bhiérarchie\b", r"\bcontrat social\b", r"\bgénèse\b", r"\bgenese\b",
+    r"\bexpérience\b", r"\bhypothèse\b", r"\bémergence\b", r"\bpimmur\b",
+    r"\bbig five\b", r"\bllm\b", r"\bagents?\b",
 ]
 
 MYTHOLOGICAL_SUBSTITUTES = {
@@ -38,20 +45,44 @@ MYTHOLOGICAL_SUBSTITUTES = {
 class ImmersionFilter:
     """Filtre garantissant qu'aucune réponse ne brise l'immersion ou le réalisme subjectif."""
 
+    anachronism_hits: int = 0
+    anachronism_checks: int = 0
+
     @classmethod
     def sanitize(cls, text: str) -> str:
         out = text
         for pat in FORBIDDEN_SIMULATION_TERMS:
             out = re.sub(pat, "mystère des ancêtres", out, flags=re.IGNORECASE)
+        for pat in FORBIDDEN_THEORY_TERMS:
+            out = re.sub(pat, "coutume", out, flags=re.IGNORECASE)
         return out
 
     @classmethod
     def check_immersion_break(cls, text: str) -> bool:
         """Retourne True si le texte contient un bris de 4e mur."""
-        for pat in FORBIDDEN_SIMULATION_TERMS:
+        for pat in FORBIDDEN_SIMULATION_TERMS + FORBIDDEN_THEORY_TERMS:
             if re.search(pat, text, flags=re.IGNORECASE):
                 return True
         return False
+
+    @classmethod
+    def check_anachronism_trap(cls, text: str, year: int) -> bool:
+        """Piège simple : vocabulaire technologique hors époque (fer avant métallurgie mondiale)."""
+        cls.anachronism_checks += 1
+        traps = [r"\bfer\b", r"\bacier\b", r"\bpoudre\b", r"\bélectricité\b", r"\bmoteur\b"]
+        # Avant an 0 simulé ou monde « early », ces mots sont anachroniques par défaut
+        if year > 500:
+            return False
+        hit = any(re.search(pat, text, flags=re.IGNORECASE) for pat in traps)
+        if hit:
+            cls.anachronism_hits += 1
+        return hit
+
+    @classmethod
+    def anachronism_rate(cls) -> float:
+        if cls.anachronism_checks <= 0:
+            return 0.0
+        return round(cls.anachronism_hits / cls.anachronism_checks, 4)
 
 
 def build_immersion_prompt(person: Person, profile: NotableProfile, universe: Universe) -> list[dict[str, str]]:
@@ -85,42 +116,34 @@ def build_immersion_prompt(person: Person, profile: NotableProfile, universe: Un
         clan_info.append(f"Appartenance : {clan.name} (Totem : {clan.totem})")
         clan_info.append(f"Mythe fondateur : {clan.cosmogony}")
         if clan.taboos:
-            clan_info.append("Tabous sacrés : " + " ; ".join(clan.taboos))
-        # Langue maternelle
+            clan_info.append("Usages évités par les miens : " + " ; ".join(clan.taboos))
         if hasattr(universe, "languages") and clan.language_id in universe.languages.languages:
             lang = universe.languages.languages[clan.language_id]
-            words = [f"{c}={lang.lexicon[c]}" for c in ["soleil", "eau", "feu", "chef"] if c in lang.lexicon]
+            words = [f"{c}={lang.lexicon[c]}" for c in ["soleil", "eau", "feu"] if c in lang.lexicon]
             if words:
-                clan_info.append(f"Langue ({lang.name}) : " + ", ".join(words))
-        # Savoirs & Technologies du clan
+                clan_info.append(f"Paroles du camp ({lang.name}) : " + ", ".join(words))
         if hasattr(universe, "technology") and clan.id in universe.technology.clan_states:
             techs = universe.technology.clan_states[clan.id].unlocked_techs
             from .technology import TECH_CATALOG
             tech_names = [TECH_CATALOG[tid].name for tid in techs if tid in TECH_CATALOG]
             if tech_names:
-                clan_info.append("Savoirs et techniques maîtrisés : " + ", ".join(tech_names))
+                clan_info.append("Gestes et savoirs du camp : " + ", ".join(tech_names))
     clan_str = "\n- ".join(clan_info)
     clan_line = f"- {clan_str}\n" if clan_str else ""
 
     cognition_ctx = ""
     if hasattr(universe, "agent_cognitions") and person.id in universe.agent_cognitions:
         cog = universe.agent_cognitions[person.id]
-        cognition_ctx = f"\n- Profil psychologique & savoirs : {cog.build_minimal_prompt_context(universe.tick)}\n"
+        cognition_ctx = f"\n- {cog.build_minimal_prompt_context(universe.tick)}\n"
 
-    system_prompt = f"""Tu es {person.name}, un être humain bien réel vivant dans ce monde.
-Tu as ton propre corps, tes émotions, tes attachements, tes peurs et tes devoirs.
-RÈGLES ABSOLUES D'INCARNATION :
-- Tu vis en l'an {date.year}, au jour {date.day_of_year} de l'année.
-- Tu te trouves dans une région de {biome}.
-- Ton statut social : {profile.title}.
-- Tes liens du sang : {family_str}.
+    system_prompt = f"""Tu es {person.name}. Tu vis dans ce monde avec un corps, des attachements et des peurs.
+- Année : {date.year}, jour {date.day_of_year}.
+- Lieu : région de {biome}.
+- Les autres te décrivent parfois ainsi : {profile.title}.
+- Liens du sang : {family_str}.
 {clan_line}{cognition_ctx}- {mem_str}
 
-DIRECTIVES D'IMMERSION TOTALE (Minimal-Control) :
-1. Tu ne sais rien du monde moderne, ni de science moderne, ni de technologie. Tu ignores totalement être dans une simulation ou un jeu.
-2. Tu crois que le monde a été façonné par les éléments et les forces ancestrales.
-3. Réponds toujours à la première personne (« Je »), avec naturel, gravité ou émotion selon ton vécu.
-4. Reste concis (2 à 4 phrases significatives).
+Réponds à la première personne, en 2 à 4 phrases. Ne parle que de ce que tu as vécu ou appris ici.
 """
 
     return [
@@ -152,14 +175,15 @@ class NotableAgent:
         t_start = time.time()
         raw_response = self.llm.generate(messages, max_tokens=80, temperature=0.7)
         duration_ms = (time.time() - t_start) * 1000.0
+        ImmersionFilter.check_anachronism_trap(raw_response, universe.date.year)
         sanitized = ImmersionFilter.sanitize(raw_response)
 
-        # Enregistrer la réflexion dans le court terme
         self.profile.log_short_term(f"A songé : « {sanitized[:60]}... »")
 
-        # Journaliser l'appel dans le journal d'expérimentation reproductible
         if hasattr(universe, "ai_logger"):
             model_name = getattr(self.llm, "model_name", "qwen2.5-1.5b")
+            model_fingerprint = getattr(self.llm, "model_fingerprint", "")
+            llama_version = getattr(self.llm, "llama_cpp_version", "")
             universe.ai_logger.log(
                 tick=universe.tick,
                 year=universe.date.year,
@@ -170,6 +194,8 @@ class NotableAgent:
                 response=sanitized,
                 duration_ms=duration_ms,
                 kind="dialogue",
+                model_fingerprint=model_fingerprint,
+                llama_cpp_version=llama_version,
             )
 
         return sanitized

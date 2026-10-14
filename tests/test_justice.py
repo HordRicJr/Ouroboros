@@ -8,7 +8,8 @@ from engine.justice import JusticeSystem
 def test_justice_system_laws_and_ranks():
     u = Universe("test_justice", seed=42)
     assert isinstance(u.justice, JusticeSystem)
-    assert len(u.justice.person_ranks) > 0
+    # Plus de grades assignés à la genèse (émergence)
+    assert isinstance(u.justice.person_ranks, dict)
 
     # Step universe across 30 days
     u.step(30)
@@ -20,7 +21,6 @@ def test_justice_system_laws_and_ranks():
     snap = u.snapshot()
     restored = Universe.from_snapshot(snap)
     assert isinstance(restored.justice, JusticeSystem)
-    assert len(restored.justice.person_ranks) == len(u.justice.person_ranks)
     assert len(restored.justice.legal_codes) == len(u.justice.legal_codes)
 
 

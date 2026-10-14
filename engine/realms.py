@@ -1,10 +1,7 @@
-"""M23 - Royaumes, Confédérations, Alliances Politiques & Tributs Vassaux.
+"""Coalitions politiques émergentes — sans titre « Royaume » / « Souverain » imposé.
 
-Ce module modélise la centralisation politique impériale :
-- Fédérations de clans en Royaumes / Principautés
-- Couronnement d'un Haut-Roi / Souverain
-- Soumission vassalique et paiement de tributs annuels
-- Révoltes de vassaux opprimés
+Le moteur enregistre seulement qu'un campement étendu rassemble d'autres groupes.
+Les habitants (ou l'analyse) nomment ces structures ; le code n'impose aucun grade.
 """
 from __future__ import annotations
 
@@ -21,13 +18,14 @@ if TYPE_CHECKING:
 
 @dataclass
 class Kingdom:
+    """Coalition politique (nom historique conservé pour snapshots)."""
     id: int
     name: str
     capital_clan_id: int
     ruler_id: int
     vassal_clan_ids: list[int] = field(default_factory=list)
     founded_year: int = 0
-    tribute_rate: float = 0.15  # 15% de tribut prélevé sur les vassaux
+    tribute_rate: float = 0.15
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -38,7 +36,7 @@ class Kingdom:
 
 
 class RealmManager:
-    """Gestionnaire des royaumes, vassaux et confédérations suprêmes."""
+    """Enregistre les coalitions sans inventer de titres royaux."""
 
     def __init__(self):
         self.kingdoms: dict[int, Kingdom] = {}
@@ -52,17 +50,17 @@ class RealmManager:
         if len(clans) < 2:
             return events
 
-        # 1. Émergence d'un royaume si un clan devient très populeux ou dominant
-        clans_in_kingdoms = set()
+        clans_in_coalition = set()
         for k in self.kingdoms.values():
-            clans_in_kingdoms.add(k.capital_clan_id)
-            clans_in_kingdoms.update(k.vassal_clan_ids)
+            clans_in_coalition.add(k.capital_clan_id)
+            clans_in_coalition.update(k.vassal_clan_ids)
 
+        # Coalitions uniquement si plusieurs camps existent et qu'un lien social dense apparaît
         for c in clans:
-            if c.id not in clans_in_kingdoms and len(c.member_ids) >= 12 and g.random() < 0.25:
-                # Création du royaume
+            if c.id not in clans_in_coalition and len(c.member_ids) >= 12 and g.random() < 0.15:
                 ruler_id = c.leader_id or (c.member_ids[0] if c.member_ids else 1)
-                k_name = f"Royaume de {c.name}"
+                # Nom descriptif neutre — pas « Royaume de … »
+                k_name = f"Coalition autour de {c.name}"
                 kingdom = Kingdom(
                     id=self.next_kingdom_id,
                     name=k_name,
@@ -72,8 +70,16 @@ class RealmManager:
                 )
                 self.kingdoms[kingdom.id] = kingdom
                 self.next_kingdom_id += 1
-                clans_in_kingdoms.add(c.id)
+                clans_in_coalition.add(c.id)
 
+                events.append(Event(tick, "coalition_formed", {
+                    "coalition_id": kingdom.id,
+                    "coalition_name": kingdom.name,
+                    "capital_clan_id": c.id,
+                    "focal_person_id": ruler_id,
+                    "year": year,
+                }))
+                # Compat événements anciens
                 events.append(Event(tick, "kingdom_founded", {
                     "kingdom_id": kingdom.id,
                     "kingdom_name": kingdom.name,
@@ -82,12 +88,18 @@ class RealmManager:
                     "year": year,
                 }))
 
-        # 2. Vassalisation diplomatique ou par contrainte
         for kingdom in self.kingdoms.values():
             for c in clans:
-                if c.id not in clans_in_kingdoms and g.random() < 0.20:
+                if c.id not in clans_in_coalition and g.random() < 0.12:
                     kingdom.vassal_clan_ids.append(c.id)
-                    clans_in_kingdoms.add(c.id)
+                    clans_in_coalition.add(c.id)
+                    events.append(Event(tick, "camp_joined_coalition", {
+                        "coalition_id": kingdom.id,
+                        "coalition_name": kingdom.name,
+                        "clan_id": c.id,
+                        "clan_name": c.name,
+                        "year": year,
+                    }))
                     events.append(Event(tick, "vassal_pledged", {
                         "kingdom_id": kingdom.id,
                         "kingdom_name": kingdom.name,

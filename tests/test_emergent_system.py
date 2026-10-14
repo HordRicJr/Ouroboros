@@ -44,7 +44,7 @@ def test_social_graph_deference():
     assert scores[1] > scores[2], "L'agent sollicité et médiateur doit avoir une plus grande centralité"
 
     title, role = sg.deduce_emergent_title(1, age=45.0, centrality=scores[1], has_spouse=True, children_count=3, clan_name="Racines")
-    assert "respecté" in title or "Guide" in role or "Pilier" in role or "écoutée" in title
+    assert "consulté" in title or "écoute" in role or "Pilier" in title or "entendue" in title
 
 
 def test_agent_cognition_stream_and_reflection():
@@ -64,10 +64,11 @@ def test_agent_cognition_stream_and_reflection():
 
     # Minimal control prompt test
     prompt_ctx = cog.build_minimal_prompt_context(current_tick=40)
-    assert "Traits de caractère dominants" in prompt_ctx
-    # Pas de consigne prescriptive
+    assert "Tempérament" in prompt_ctx
+    # Pas de consigne prescriptive ni de jargon théorique
     assert "sois méfiant" not in prompt_ctx.lower()
     assert "obéis au chef" not in prompt_ctx.lower()
+    assert "big five" not in prompt_ctx.lower()
 
 
 def test_universe_emergent_dynamics():
@@ -75,7 +76,7 @@ def test_universe_emergent_dynamics():
 
     # Vérifier l'initialisation sans grades prédéfinis arbitraires
     for prof in u.notables.values():
-        assert prof.rank_grade in ("Guide", "Conseiller", "Pilier", "Aîné", "Membre")
+        assert prof.rank_grade in ("écoute", "maison", "âge", "membre")
         assert 1 <= prof.influence <= 100
 
     # Simuler 100 jours

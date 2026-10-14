@@ -28,13 +28,17 @@ class AICallRecord:
     response: str
     duration_ms: float
     kind: str = "dialogue"  # "dialogue", "reflection", "naming", "deliberation"
+    model_fingerprint: str = ""
+    llama_cpp_version: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> AICallRecord:
-        return cls(**d)
+        from dataclasses import fields as dc_fields
+        known = {f.name for f in dc_fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 class AICallLogger:
@@ -56,6 +60,8 @@ class AICallLogger:
         response: str,
         duration_ms: float,
         kind: str = "dialogue",
+        model_fingerprint: str = "",
+        llama_cpp_version: str = "",
     ) -> AICallRecord:
         self.counter += 1
         rec = AICallRecord(
@@ -70,14 +76,27 @@ class AICallLogger:
             response=response,
             duration_ms=round(duration_ms, 2),
             kind=kind,
+            model_fingerprint=model_fingerprint,
+            llama_cpp_version=llama_cpp_version,
         )
         self.records.append(rec)
         if len(self.records) > self.max_records:
             self.records.pop(0)
         return rec
 
+    def calls_per_simulated_year(self, start_year: int, current_year: int) -> float:
+        span = max(1, abs(current_year - start_year) + 1)
+        return round(self.counter / span, 4)
+
     def get_recent(self, limit: int = 50) -> list[dict[str, Any]]:
         return [r.to_dict() for r in reversed(self.records[-limit:])]
+
+    def replay_response(self, record_id: int) -> str | None:
+        """Rejoue une réponse déjà journalisée sans nouvel appel IA."""
+        for r in self.records:
+            if r.record_id == record_id:
+                return r.response
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +110,26 @@ class AICallLogger:
         logger.counter = data.get("counter", 0)
         logger.records = [AICallRecord.from_dict(r) for r in data.get("records", [])]
         return logger
+
+
+def leakage_test_prompt(system_prompt: str) -> dict[str, Any]:
+    """Test de fuite simple (heuristique) : le prompt révèle-t-il l'hypothèse ?
+
+    Un second modèle / auditeur devrait échouer à deviner l'expérience.
+    Ici on détecte des fuites lexicales sans appeler un LLM externe.
+    """
+    import re
+
+    markers = [
+        r"émergence", r"pimmur", r"hypothèse", r"expérience", r"simulation",
+        r"contrat social", r"génèse", r"big five", r"hiérarchie", r"observateur",
+    ]
+    hits = [m for m in markers if re.search(m, system_prompt, flags=re.IGNORECASE)]
+    return {
+        "passed": len(hits) == 0,
+        "leaked_markers": hits,
+        "recommendation": "Retirer les marqueurs du prompt habitant" if hits else "OK",
+    }
 
 
 @dataclass

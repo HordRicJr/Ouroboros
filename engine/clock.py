@@ -1,4 +1,4 @@
-"""M01 - Temps et calendrier. Règle : 1 seconde réelle = 1 jour simulé.
+"""M01 - Temps et calendrier. Règle : 0,5 seconde réelle = 1 jour simulé.
 
 Le tick 0 correspond au 1er jour de l'année `start_year`. Les années négatives
 sont supportées (numérotation astronomique : l'année 0 existe). Une année est
@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-SECONDS_PER_DAY = 1.0  # 1 s réelle = 1 jour simulé
+SECONDS_PER_DAY = 0.5  # 0,5 s réelle = 1 jour simulé (plan expérimental 2026-10-14)
 
 
 @dataclass(frozen=True)

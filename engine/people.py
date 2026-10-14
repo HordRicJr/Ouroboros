@@ -21,15 +21,29 @@ from .genetics import (
 )
 from .rng import Rng
 
-_FIRST_M = [
-    "Dan", "Seth", "Enosh", "Kenan", "Jared", "Enoch", "Mathus", "Lamek", "Noe", "Sem",
-    "Cham", "Japhet", "Eber", "Peleg", "Abram", "Isaac", "Jacob", "Ruben", "Juda", "Joseph"
+# Cadre neutre (condition expérimentale par défaut) — syllabes inventées, hors Genèse.
+_NEUTRAL_M = [
+    "Torun", "Kela", "Miran", "Soru", "Velen", "Nari", "Obek", "Dalen", "Ruka", "Ysil",
+    "Bren", "Lumak", "Fenor", "Arik", "Sutel", "Korin", "Mebas", "Talen", "Orun", "Zekil",
 ]
-_FIRST_F = [
+_NEUTRAL_F = [
+    "Lira", "Sefa", "Nyra", "Amel", "Vira", "Tesa", "Ona", "Mira", "Kela", "Rena",
+    "Sula", "Bira", "Ena", "Yola", "Pari", "Nema", "Tula", "Ari", "Sena", "Kora",
+]
+# Cadre biblique (condition expérimentale optionnelle)
+_BIBLICAL_M = [
+    "Dan", "Seth", "Enosh", "Kenan", "Jared", "Enoch", "Mathus", "Lamek", "Noe", "Sem",
+    "Cham", "Japhet", "Eber", "Peleg", "Abram", "Isaac", "Jacob", "Ruben", "Juda", "Joseph",
+]
+_BIBLICAL_F = [
     "Hava", "Sara", "Ada", "Silla", "Dina", "Lia", "Rachel", "Noema", "Rebecca", "Milca",
-    "Tamar", "Ruth", "Miryam", "Anna", "Debora", "Hana", "Sarra", "Ela", "Mara", "Ketsia"
+    "Tamar", "Ruth", "Miryam", "Anna", "Debora", "Hana", "Sarra", "Ela", "Mara", "Ketsia",
 ]
 _END = ["", "el", "an", "ar", "en", "ir", "on", "us", "a", "or"]
+
+# Alias par défaut = neutre (run de référence)
+_FIRST_M = _NEUTRAL_M
+_FIRST_F = _NEUTRAL_F
 
 
 @dataclass
@@ -83,15 +97,22 @@ class Person:
 
 
 class People:
-    def __init__(self, max_followed: int = 2000):
+    def __init__(self, max_followed: int = 2000, cultural_frame: str = "neutral"):
         self.persons: dict[int, Person] = {}
         self.next_id = 1
         self.max_followed = max_followed
+        self.cultural_frame = cultural_frame if cultural_frame in ("neutral", "biblical") else "neutral"
         self.cultures: dict[str, CultureRules] = {"ancestrale": CultureRules()}
 
     # -------------------------------------------------------------- création
+    def _name_pools(self) -> tuple[list[str], list[str]]:
+        if self.cultural_frame == "biblical":
+            return _BIBLICAL_M, _BIBLICAL_F
+        return _NEUTRAL_M, _NEUTRAL_F
+
     def _name(self, sex: str, g: np.random.Generator) -> str:
-        first = _FIRST_F if sex == "F" else _FIRST_M
+        pool_m, pool_f = self._name_pools()
+        first = pool_f if sex == "F" else pool_m
         suffix = str(g.choice(_END))
         base = str(g.choice(first))
         return base if not suffix or base.endswith(suffix) else base + suffix
@@ -108,17 +129,13 @@ class People:
         return p
 
     @classmethod
-    def genesis(cls, eco, rng: Rng, tick: int = 0, couples_per_camp: int = 1) -> People:
-        """Genèse anthropologique émergente : bande de chasseurs-cueilleurs viable (14-16 individus).
-        
-        Comprend par campement :
-        - 1 couple d'aînés / doyens du clan (âges 48-52 ans)
-        - 4 couples adultes en âge de subsistance et procréation (âges 19-35 ans)
-        - 5 enfants et adolescents avec filiation génétique directe
-        Génération entièrement procédurale des noms, génomes diploïdes et relations.
+    def genesis(cls, eco, rng: Rng, tick: int = 0, couples_per_camp: int = 1, cultural_frame: str = "neutral") -> People:
+        """Genèse anthropologique : bande de chasseurs-cueilleurs viable (14-16 individus).
+
+        Cadre culturel : ``neutral`` (défaut) ou ``biblical`` (variable expérimentale).
         """
         from .species import HUMAN
-        people = cls()
+        people = cls(cultural_frame=cultural_frame)
         hs = [s for s in eco.species if s.kind == HUMAN]
         if not hs:
             return people
@@ -333,13 +350,17 @@ class People:
 
     # ------------------------------------------------------------ sérialisation
     def to_dict(self) -> dict:
-        return {"persons": [p.to_dict() for p in self.persons.values()], "next_id": self.next_id,
-                "max_followed": self.max_followed,
-                "cultures": {k: asdict(v) for k, v in self.cultures.items()}}
+        return {
+            "persons": [p.to_dict() for p in self.persons.values()],
+            "next_id": self.next_id,
+            "max_followed": self.max_followed,
+            "cultural_frame": self.cultural_frame,
+            "cultures": {k: asdict(v) for k, v in self.cultures.items()},
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> People:
-        p = cls(d["max_followed"])
+        p = cls(d["max_followed"], cultural_frame=d.get("cultural_frame", "neutral"))
         p.next_id = d["next_id"]
         p.persons = {x["id"]: Person.from_dict(x) for x in d["persons"]}
         p.cultures = {k: CultureRules(**v) for k, v in d["cultures"].items()}

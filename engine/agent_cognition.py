@@ -92,6 +92,29 @@ class AgentCognition:
         )
         return cls(person_id=person_id, personality=p)
 
+    @classmethod
+    def inherit_from_parents(
+        cls,
+        person_id: int,
+        mother: AgentCognition | None,
+        father: AgentCognition | None,
+        seed: int = 42,
+        heritability: float = 0.4,
+    ) -> AgentCognition:
+        """Héritabilité partielle des traits + bruit individuel."""
+        import random
+        base = cls.create_random(person_id, seed=seed)
+        if not mother and not father:
+            return base
+        rng = random.Random(seed + person_id * 777)
+        parents = [p for p in (mother, father) if p is not None]
+        for attr in ("openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"):
+            parental = sum(getattr(p.personality, attr) for p in parents) / len(parents)
+            noise = rng.uniform(-0.15, 0.15)
+            mixed = (heritability * parental) + ((1.0 - heritability) * getattr(base.personality, attr)) + noise
+            setattr(base.personality, attr, round(min(0.95, max(0.05, mixed)), 2))
+        return base
+
     @property
     def known_facts(self) -> set[str]:
         if not hasattr(self, "_known_facts_set") or self._known_facts_set is None:
@@ -255,9 +278,9 @@ class AgentCognition:
             traits_desc.append("calme face aux imprévus")
 
         if traits_desc:
-            lines.append("Traits de caractère dominants (Big Five) : " + ", ".join(traits_desc) + ".")
+            lines.append("Tempérament : " + ", ".join(traits_desc) + ".")
         else:
-            lines.append("Traits de caractère dominants (Big Five) : tempérament mesuré et pondéré.")
+            lines.append("Tempérament : mesuré et pondéré.")
 
         # 2. Savoirs empiriques (TimeChara anti-anachronisme)
         if self.knowledge_inventory:

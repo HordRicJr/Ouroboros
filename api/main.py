@@ -136,10 +136,10 @@ if store.exists("main"):
         logger.info("Univers 'main' chargé depuis la persistance (Tick: %d, Date: %s)", _default_u.tick, _default_u.date)
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
         logger.warning("Erreur chargement 'main': %s - réinitialisation", exc)
-        _default_u = Universe("main", 42, start_year=-4004)
+        _default_u = Universe("main", 42, start_year=0, cultural_frame="neutral")
         store.save(_default_u)
 else:
-    _default_u = Universe("main", 42, start_year=-4004)
+    _default_u = Universe("main", 42, start_year=0, cultural_frame="neutral")
     store.save(_default_u)
 
 universes["main"] = _default_u
@@ -149,7 +149,8 @@ multiverse.register(_default_u)
 class CreateUniverseRequest(BaseModel):
     id: str = Field(..., json_schema_extra={"example": "eden-01"})
     seed: int = Field(default=42, json_schema_extra={"example": 42})
-    start_year: int = Field(default=-4004, json_schema_extra={"example": -4004})
+    start_year: int = Field(default=0, json_schema_extra={"example": 0})
+    cultural_frame: str = Field(default="neutral", json_schema_extra={"example": "neutral"})
     parent_id: str | None = Field(default=None, json_schema_extra={"example": None})
     year_length_days: int = Field(default=365)
     gravity: float = Field(default=9.81)
@@ -294,7 +295,14 @@ def create_universe(req: CreateUniverseRequest) -> dict[str, Any]:
         mutation_rate=req.mutation_rate,
         base_temperature=req.base_temperature,
     )
-    u = Universe(req.id, req.seed, consts=consts, start_year=req.start_year, parent_id=req.parent_id)
+    u = Universe(
+        req.id,
+        req.seed,
+        consts=consts,
+        start_year=req.start_year,
+        parent_id=req.parent_id,
+        cultural_frame=getattr(req, "cultural_frame", "neutral"),
+    )
     universes[req.id] = u
     store.save(u)
     return {"message": "Univers créé avec succès", "info": u.info()}
@@ -385,9 +393,16 @@ async def reset_universe(universe_id: str) -> dict[str, Any]:
     task = _running_tasks.pop(universe_id, None)
     if task and not task.done():
         task.cancel()
-    # Réinitialisation à neuf avec la même graine (commencement biblique en 4004 av. J.-C.)
-    target_start_year = -4004 if (universe_id == "main" or u_old.start_year == 0) else u_old.start_year
-    u_new = Universe(u_old.id, u_old.seed, consts=u_old.consts, start_year=target_start_year, parent_id=u_old.parent_id)
+    # Réinitialisation à neuf (cadre neutre par défaut — préenregistrement 2026-10-14)
+    frame = getattr(u_old, "cultural_frame", "neutral")
+    u_new = Universe(
+        u_old.id,
+        u_old.seed,
+        consts=u_old.consts,
+        start_year=0,
+        parent_id=u_old.parent_id,
+        cultural_frame=frame,
+    )
     universes[universe_id] = u_new
     store.save(u_new)
     # Relancer immédiatement la simulation H24 au jour 0
@@ -819,23 +834,53 @@ def get_ai_logs(universe_id: str, limit: int = Query(50, ge=1, le=500)) -> dict[
 
 @app.get("/universes/{universe_id}/research_protocol")
 def get_research_protocol(universe_id: str) -> dict[str, Any]:
+    from engine.experiment import leakage_test_prompt
+    from engine.immersion import ImmersionFilter, build_immersion_prompt
+    from engine.clock import SECONDS_PER_DAY
+
     u = _get_universe(universe_id)
+    sample_leak = {"passed": True, "leaked_markers": [], "recommendation": "aucun notable"}
+    for pid, prof in list(u.notables.items())[:1]:
+        person = u.people.persons.get(pid)
+        if person and person.alive:
+            msgs = build_immersion_prompt(person, prof, u)
+            sample_leak = leakage_test_prompt(msgs[0]["content"])
+            break
+
     return {
         "universe_id": universe_id,
         "branch_type": u.branch_metadata.branch_type,
         "parent_universe_id": u.branch_metadata.parent_universe_id,
+        "cultural_frame": getattr(u, "cultural_frame", "neutral"),
+        "seconds_per_day": SECONDS_PER_DAY,
+        "ai_calls_per_year": u.ai_logger.calls_per_simulated_year(u.start_year, u.date.year),
+        "anachronism_rate": ImmersionFilter.anachronism_rate(),
+        "leakage_test": sample_leak,
+        "docs": {
+            "plan": "docs/plan-amelioration-emergence.md",
+            "preregistration": "docs/preregistration-2026-10-14.md",
+            "odd": "docs/ODD-protocol.md",
+        },
         "principles_compliance": {
-            "profile": "Profils différenciés Big Five avec héritabilité génétique partielle",
-            "interaction": "Perception locale stricte sans résumés statistiques dans les prompts",
-            "memory": "Flux de mémoire épisodique avec oubli exponentiel et réflexion périodique",
-            "minimal_control": "Prompts purement descriptifs, aucune consigne prescriptive de comportement",
-            "unawareness": "Aucune mention de la simulation ou d'hypothèses dans les échanges",
-            "realism": "Calibration démographique (mortalité, longévité, fertilité)",
+            "profile": "Profils différenciés Big Five avec héritabilité partielle",
+            "interaction": "Perception locale sans résumés statistiques dans les prompts",
+            "memory": "Flux de mémoire épisodique avec oubli et réflexion périodique",
+            "minimal_control": "Prompts descriptifs ; filtre anti-théorie / anti-simulation",
+            "unawareness": "Test de fuite lexical sur le prompt habitant",
+            "realism": "Indicateurs démographiques saisonniers (calibration fine à venir)",
         },
         "model_architecture": {
-            "engine": "Ouroboros Pure Emergent Engine",
+            "engine": "Ouroboros Emergent Engine",
             "llm_model": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+            "llm_secondary": "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf (optionnel)",
             "ai_budget_mode": "Décisionnel sélectif (pas d'appel systématique par tick)",
+        },
+        "notability_criteria": {
+            "deference_centrality_min": 35.0,
+            "or_age_years_min": 40.0,
+            "or_clan_focal_role": True,
+            "or_population_leq": 5,
+            "documented_in": "engine/engine.py::refresh_notables_hierarchy",
         },
     }
 

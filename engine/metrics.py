@@ -75,6 +75,8 @@ class SeasonalMetricsSnapshot:
     # Diversité & Spécialisation
     behavioral_entropy: float = 0.0
     job_specialization_entropy: float = 0.0
+    resource_variance: float = 0.0
+    influence_variance: float = 0.0
 
     # Réseau social & Déférence
     network_density: float = 0.0
@@ -87,6 +89,11 @@ class SeasonalMetricsSnapshot:
     taboo_violation_rate: float = 0.0
     active_customs_count: int = 0
     beliefs_count: int = 0
+    lexicon_size: int = 0
+
+    # Immersion / IA
+    anachronism_rate: float = 0.0
+    ai_calls_per_year: float = 0.0
 
     # Écologie
     biomass_ratio: float = 1.0
@@ -97,7 +104,9 @@ class SeasonalMetricsSnapshot:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SeasonalMetricsSnapshot:
-        return cls(**d)
+        from dataclasses import fields as dc_fields
+        known = {f.name for f in dc_fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 class SimulationMetricsHistory:
