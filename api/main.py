@@ -834,9 +834,9 @@ def get_ai_logs(universe_id: str, limit: int = Query(50, ge=1, le=500)) -> dict[
 
 @app.get("/universes/{universe_id}/research_protocol")
 def get_research_protocol(universe_id: str) -> dict[str, Any]:
+    from engine.clock import SECONDS_PER_DAY
     from engine.experiment import leakage_test_prompt
     from engine.immersion import ImmersionFilter, build_immersion_prompt
-    from engine.clock import SECONDS_PER_DAY
 
     u = _get_universe(universe_id)
     sample_leak = {"passed": True, "leaked_markers": [], "recommendation": "aucun notable"}

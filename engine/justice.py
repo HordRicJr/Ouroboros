@@ -191,5 +191,5 @@ class JusticeSystem:
         js.legal_codes = {c["clan_id"]: LegalCode.from_dict(c) for c in d.get("legal_codes", [])}
         js.trials = [Trial.from_dict(t) for t in d.get("trials", [])]
         js.person_ranks = {int(k): v for k, v in d.get("person_ranks", {}).items()}
-        js.banished_ids = set(int(x) for x in d.get("banished_ids", []))
+        js.banished_ids = {int(x) for x in d.get("banished_ids", [])}
         return js
