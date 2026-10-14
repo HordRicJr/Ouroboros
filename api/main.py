@@ -53,7 +53,8 @@ async def _universe_step_loop(universe_id: str):
             if u:
                 u.step(1)
                 step_count += 1
-                if step_count % 10 == 0:
+                # Sauvegarde rare : sérialiser un snapshot numpy double la RAM et provoque des OOM sur 8 Go
+                if step_count % 500 == 0:
                     try:
                         store.save(u)
                     except (RuntimeError, ValueError, OSError) as s_err:
